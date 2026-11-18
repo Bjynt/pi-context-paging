@@ -17,6 +17,12 @@ An assistant with `stopReason: "aborted"` or `"error"` remains recoverable with 
 Projection retains the original assistant and result objects and marks the turn failed. It does not synthesize results.
 Failed text-only responses also remain in raw history.
 
+`projectActiveBranchIncremental` reuses the previous projection prefix through a watermark: the projected items, the raw entry index through the last complete item, and the id of the last consumed raw entry.
+A matching watermark projects only the entries after it and appends their items, continuing their sequence numbers from the prefix.
+The projection is rebuilt in full when the watermark cannot be trusted: no previous watermark, a restore, a replaced interrupted-entry set (compared by reference), an anchor entry past the branch end, or an anchor entry whose id changed.
+When the remaining entries yield no items, the watermark is kept unchanged, so a trailing incomplete exchange is projected again on the next refresh.
+A paging-state reset drops the watermark, so the next refresh projects from the start.
+
 ## History navigation
 
 `recovery-content.ts` creates a public recovery view without changing raw branch items.
@@ -166,7 +172,10 @@ These stateless calls cannot promise prefix stability.
 `context-usage.ts` links a successful provider response to the exact selected request snapshot.
 It matches that snapshot against the projected persistent session and separates outgoing-only instructions.
 It subtracts the full persistent tail from Pi's status total, including system updates absent from outgoing messages.
-Resident prompt and tool schemas contribute once. Weak caches reuse message fingerprints and estimates.
+Resident prompt and tool schemas contribute once. `context-costs.ts` caches message fingerprints and estimates across requests.
+Pi clones the outgoing messages for every `context` hook, so object identity alone never matches between requests. A keyed cache addresses costs by journal entry instead: an assistant message binds through its tool-call ids to the owning model-turn entry id, and a tool result binds by its `toolCallId`. User and transient messages have no entry-derived key and keep the per-object cache alone.
+Each keyed entry also stores a content signature over the message's shape, every key, every string's length, and the ends of every string. A message rewritten under the same key costs that object on its own and leaves the journal entry's costs intact, so another extension's `context` rewrite cannot poison the cached cost.
+Keyed costs survive until the paging state resets, so the cache grows with the messages that were measured.
 When no valid response anchor exists, selection uses the heuristic fallback.
 Calibration uses the original incoming snapshot, before any remembered cut.
 `context-calibration.ts` separates positive undercount into resident overhead and costs assigned to measured persistent messages.
@@ -223,6 +232,9 @@ Partial-turn and prefix evictions add nothing, because their request stays in co
 The section fits the smallest of 32,000 code units, 10% of the effective budget at 4 characters per token, and the room left once every evictable unit is gone.
 Entries are chosen newest first and shown oldest first. Each entry is clipped to 6,000 code units and names the exact part that holds the full text.
 The selector rebuilds the notice only when the evicted record or recovery key changes, and it does not cache rebuilt notices.
+A stateful cut carries the conversation as plain records in its cut snapshot, captured at the last keyed boundary and capped to the entries a section can render.
+When the earlier-evicted turn count matches the records, the selector seeds the conversation from them instead of replaying every evicted turn, so a rebuilt notice renders the conversation a cold rebuild would produce.
+A count mismatch discards the records and replays the evicted turns.
 When a remembered cut leaves nothing to evict and its frozen notice no longer fits, the selector resizes the copied conversation before it rejects the request.
 The cut state keeps the resized notice until the frontier advances.
 
