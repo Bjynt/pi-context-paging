@@ -248,7 +248,7 @@ When normal paging resumes, its frozen notice returns unchanged. Part 1 does not
 ## Lifecycle
 
 `index.ts` resolves global and trusted-project settings at session start.
-The `/context-paging on|off|status|stats` command keeps an optional enabled override in memory.
+The `/context-paging on|off|status|stats|rotate` command keeps an optional enabled override in memory.
 No arguments show the current state. Invalid arguments show usage without changing state.
 Paging, recovery tools, trim-target warnings, and automatic-compaction cancellation use the same effective enabled state.
 An actual enabled-state change resets cut state and accounting. Repeated choices and status queries do not reset either.
@@ -274,6 +274,13 @@ Successful `session_compact` events and newly projected compaction or `context_e
 One `context_edit` is an exception: Pi's retry edit that omits a failed or aborted assistant response.
 That response was never sent, so the cut stays. The edit clears accounting only, because Pi's usage status then estimates the whole projection until the next measured response.
 The entry module deduplicates an event and its later saved-entry notification, so they cannot reset a newly established frontier twice.
+
+`/context-paging rotate [tokens]` queues one rotation: the next request trims to `trimToTokens`, or to `tokens`, even when the request already fits the budget. Callers use it after a prompt cache goes cold, where a full rewrite costs nothing extra.
+An explicit target must be a positive safe integer below the effective budget, and the queued target is scaled by a smaller model window exactly as `trimToTokens` is, so the notice can name the target selection will use.
+The queue holds one rotation. A paging-state reset clears it, and a disabled extension rotates nothing.
+Rotation applies only to stateful selection, so a stateless provenance fallback never causes a one-turn cut and return.
+The queue is cleared where successful cut state is committed, so an aborted provider request keeps its rotation for the retry.
+The command reports the outcome of the consumed rotation: the resulting request size, or the reason the cut did not move.
 
 Missing raw frontier keys clear old cut state. Valid current provenance can establish a fresh cut without a provider abort.
 Canceled branch, fork, session-switch, and compaction attempts do not reset a cut.
