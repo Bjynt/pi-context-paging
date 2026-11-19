@@ -60,11 +60,12 @@ function run(command, args, options = {}) {
   return result.stdout;
 }
 
-function createPiEnvironment(homeDirectory, toolsetOutput) {
+function createPiEnvironment(homeDirectory, toolsetOutput, hostApiOutput) {
   const environment = {
     ...process.env,
     HOME: homeDirectory,
     PI_TOOLSET_PROBE_OUTPUT: toolsetOutput,
+    PI_HOST_API_PROBE_OUTPUT: hostApiOutput,
   };
   delete environment.PI_PACKAGE_DIR;
   return environment;
@@ -128,9 +129,10 @@ try {
   run("tar", ["-xzf", tarball, "-C", workDirectory]);
 
   homeDirectory = await mkdtemp("/tmp/pi-context-paging-home.");
+  const hostApiOutput = join(workDirectory, "host-apis.json");
   assertTemporaryPath(homeDirectory);
   const toolsetOutput = join(workDirectory, "tools.json");
-  const piEnvironment = createPiEnvironment(homeDirectory, toolsetOutput);
+  const piEnvironment = createPiEnvironment(homeDirectory, toolsetOutput, hostApiOutput);
 
   run(piCommand, ["--version"], { env: piEnvironment });
   run(
@@ -154,7 +156,29 @@ try {
     assert(tools.active.includes(name), `${name} is not active`);
   }
 
-  console.log(`verified ${packed.filename} and ${requiredTools.length} history tools`);
+  // Registration is the easy half: the host transpiles .ts with jiti, so a missing session-manager method or host
+  // export is a TypeError on the request path, not a load failure. Run the APIs the extension actually calls.
+  run(
+    piCommand,
+    [
+      "--no-session",
+      "--no-builtin-tools",
+      "-e",
+      join(workDirectory, "package"),
+      "--extension",
+      join(repoRoot, "scripts", "host-api-probe.ts"),
+      "-p",
+      "/host-api-probe",
+    ],
+    { env: piEnvironment },
+  );
+  const hostApis = JSON.parse(await readFile(hostApiOutput, "utf8"));
+  assert(
+    hostApis.ok,
+    `the packed extension calls host APIs this host does not provide: ${hostApis.missing.join("; ")}`,
+  );
+
+  console.log(`verified ${packed.filename} and ${requiredTools.length} history tools, and the host APIs the extension calls`);
 } catch (error) {
   failure = error;
 }
