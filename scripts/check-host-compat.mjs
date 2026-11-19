@@ -10,7 +10,7 @@
 //   node scripts/check-host-compat.mjs                        # latest published Pi
 //   ... --host <version|dist-tag>                             # a specific Pi (default: latest)
 //   ... --dir <path>                                          # use/create this workspace (kept by default)
-//   ... --install-only | --typecheck-only | --tests-only      # run one stage in an existing workspace
+//   ... --install-only | --typecheck-only | --tests-only | --artifact-only   # one stage in an existing workspace
 //   ... --keep                                                # keep a fresh temp workspace
 //
 // The install stage needs network access. The exit code is 2 for a gate/setup problem and 1 when the
@@ -43,9 +43,10 @@ const dirArg = takeValue("dir", undefined);
 const installOnly = takeFlag("install-only");
 const typecheckOnly = takeFlag("typecheck-only");
 const testsOnly = takeFlag("tests-only");
+const artifactOnly = takeFlag("artifact-only");
 const keep = takeFlag("keep") || dirArg !== undefined;
 if (args.length > 0) {
-	console.log(`HOST GATE: unexpected argument ${args[0]}\n${"usage: node scripts/check-host-compat.mjs [--host <v>] [--dir <path>] [--install-only|--typecheck-only|--tests-only] [--keep]"}`);
+	console.log(`HOST GATE: unexpected argument ${args[0]}\n${"usage: node scripts/check-host-compat.mjs [--host <v>] [--dir <path>] [--install-only|--typecheck-only|--tests-only|--artifact-only] [--keep]"}`);
 	process.exit(2);
 }
 
@@ -93,10 +94,21 @@ function install() {
 }
 
 function sync() {
-	for (const dir of ["src", "tests", "eval", "scripts", "bench"]) {
-		if (existsSync(join(repo, dir))) cpSync(join(repo, dir), join(workspace, dir), { recursive: true });
+	// The dev surface, plus exactly what package.json ships: `scripts/smoke-packed-artifact.mjs` asserts the
+	// packed file list, so a workspace that omits README.md/LICENSE/docs packs an unfaithful artifact and the
+	// artifact stage fails for the wrong reason.
+	const manifest = JSON.parse(readFileSync(join(repo, "package.json"), "utf8"));
+	for (const entry of ["src", "tests", "eval", "scripts", "bench", "docs", ...(manifest.files ?? [])]) {
+		const from = join(repo, entry);
+		const to = join(workspace, entry);
+		// Prune before copying. A staged `--dir` run reuses a workspace, and additive copying would leave a
+		// file the source no longer has — the packed artifact would then look complete while the tree is not.
+		rmSync(to, { recursive: true, force: true });
+		if (existsSync(from)) cpSync(from, to, { recursive: true });
 	}
-	for (const file of ["tsconfig.json", "package.json"]) cpSync(join(repo, file), join(workspace, file));
+	for (const file of ["tsconfig.json", "package.json", "LICENSE", "README.md"]) {
+		if (existsSync(join(repo, file))) cpSync(join(repo, file), join(workspace, file));
+	}
 }
 
 function typecheck() {
@@ -110,6 +122,21 @@ function typecheck() {
 	console.log(`HOST GATE: typecheck ${errors.length === 0 ? "clean" : `${errors.length} error(s)`}`);
 	for (const line of errors.slice(0, 12)) console.log(`  ${line}`);
 	return errors.length > 0;
+}
+
+/** Loads the packed tarball in the real host CLI: the artifact is what ships, and it is what a user's Pi loads. */
+function artifact() {
+	const smoke = join(workspace, "scripts", "smoke-packed-artifact.mjs");
+	if (!existsSync(smoke)) {
+		console.log("HOST GATE: no scripts/smoke-packed-artifact.mjs in the workspace; the artifact was not checked");
+		return true;
+	}
+	const result = run(process.execPath, ["scripts/smoke-packed-artifact.mjs"]);
+	const verdict = result.out.split("\n").filter((line) => /verified .*\.tgz|AssertionError|Error:/.test(line)).slice(-3);
+	const failed = result.code !== 0;
+	console.log(`HOST GATE: artifact ${failed ? "FAILED" : "OK"}`);
+	for (const line of verdict) console.log(`  ${line.trim()}`);
+	return failed;
 }
 
 function tests() {
@@ -131,11 +158,12 @@ function tests() {
 }
 
 let failed = false;
-// --typecheck-only/--tests-only are staged probes of an already-installed workspace.
-if (!testsOnly && !typecheckOnly) install();
+// --typecheck-only/--tests-only/--artifact-only are staged probes of an already-installed workspace.
+if (!testsOnly && !typecheckOnly && !artifactOnly) install();
 sync();
-if (!testsOnly) failed = typecheck() || failed;
-if (!installOnly && !typecheckOnly) failed = tests() || failed;
+if (!testsOnly && !artifactOnly) failed = typecheck() || failed;
+if (!installOnly && !typecheckOnly && !artifactOnly) failed = tests() || failed;
+if (!installOnly && !typecheckOnly && !testsOnly) failed = artifact() || failed;
 if (!keep) rmSync(workspace, { recursive: true, force: true });
 console.log(`HOST GATE ${failed ? "FAILED" : "OK"} on Pi ${installedVersion()} (${workspace})`);
 process.exit(failed ? 1 : 0);
