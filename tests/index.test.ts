@@ -12,6 +12,7 @@ import { ContextUsageTracker } from "../src/context-usage.ts";
 import { fixtureFromEntries, pagingFixture, type PagingFixture } from "./fixtures/context-cut.ts";
 import contextPagingExtension, { resolveContextPagingSettings } from "../src/index.ts";
 import { HistoryNavigator } from "../src/navigator.ts";
+import { VIRTUAL_MODEL_API } from "../src/routed-model.ts";
 
 type Handler = (event: any, ctx: any) => unknown;
 
@@ -1236,7 +1237,7 @@ test("a virtual model without a declared window pages to the configured budget",
 	const messages = ["VIRTUAL_A", "VIRTUAL_B", "VIRTUAL_C"].flatMap((id) => [user(id), assistant(`${id} ${"x".repeat(240_000)}`)]);
 	messages.push(user("VIRTUAL_ACTIVE"));
 	harness.setBranch(messages.map((message, index) => entry(`virtual-${index}`, message)));
-	Object.assign(harness.ctx.model, { api: "pi-virtual", contextWindow: 0 });
+	Object.assign(harness.ctx.model, { api: VIRTUAL_MODEL_API, contextWindow: 0 });
 	const selected = await emit(harness, "context", { messages }) as any;
 	assert.equal(harness.abortCalls(), 0);
 	assert.deepEqual(harness.notifications.filter((item) => item.level === "error"), []);
@@ -1256,7 +1257,7 @@ test("a physical model with a zero window still aborts the provider call", async
 
 function routedFixture() {
 	const harness = createHarness({ globalSettings: { contextPaging: { tokenBudget: 128_000 } }, projectTrusted: false });
-	Object.assign(harness.ctx.model, { api: "pi-virtual", provider: "router", id: "auto", contextWindow: 128_000 });
+	Object.assign(harness.ctx.model, { api: VIRTUAL_MODEL_API, provider: "router", id: "auto", contextWindow: 128_000 });
 	harness.addModel({ provider: "lab", id: "large", contextWindow: 128_000 });
 	harness.addModel({ provider: "lab", id: "small", contextWindow: 64_000 });
 	const messages = ["ROUTE_A", "ROUTE_B", "ROUTE_C"].flatMap((id) => [user(id), assistant(`${id} ${"x".repeat(240_000)}`)]);

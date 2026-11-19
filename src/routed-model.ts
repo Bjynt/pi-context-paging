@@ -15,6 +15,16 @@ export const ROUTE_CHANNEL = "context-paging:route";
 
 type RouteReport = { provider: string; id: string };
 
+/**
+ * The `api` tag Pi gives a virtual selection. This mirrors Pi's own
+ * `VIRTUAL_MODEL_API` (`packages/coding-agent/src/core/virtual-models.ts`); the host owns the value and this
+ * package cannot import it, so the contract is pinned by `tests/routed-model.host-contract.test.ts`, which
+ * compares it against the installed host build. A mismatch is silent and severe: the comparisons below stop
+ * matching, a virtual selection is treated as a physical model with a `0` window, and paging aborts every
+ * provider call.
+ */
+export const VIRTUAL_MODEL_API = "pi-virtual";
+
 export type RequestLimits = {
 	/** The context window to page against; `undefined` means unknown. */
 	contextWindow: number | undefined;
@@ -70,10 +80,10 @@ export class RouteReports {
 /** Resolves the limits of the model the current request uses. */
 export function requestLimits(ctx: ExtensionContext, report: RouteReport | undefined): RequestLimits {
 	const model = ctx.model;
-	if (model?.api !== "pi-virtual") return { contextWindow: model?.contextWindow, key: modelKey(model) };
+	if (model?.api !== VIRTUAL_MODEL_API) return { contextWindow: model?.contextWindow, key: modelKey(model) };
 	if (report) {
 		const routed = ctx.modelRegistry.find(report.provider, report.id);
-		if (!routed || routed.api === "pi-virtual") {
+		if (!routed || routed.api === VIRTUAL_MODEL_API) {
 			throw new Error(`The router reported ${report.provider}/${report.id}, which is not a physical model in the registry.`);
 		}
 		// Invalid physical windows reach context selection and fail closed there.
