@@ -27,3 +27,18 @@ jobs:
 
       - name: Check package
         run: npm run check
+  # peerDependencies are "*", so users run this package on Pi releases the pinned dev host predates.
+  # This job runs the same gates against the latest published host; see scripts/check-host-compat.mjs.
+  host-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Check against the latest published Pi
+        run: node scripts/check-host-compat.mjs
