@@ -568,7 +568,7 @@ Requirements:
 - Node.js 22.19.0 or newer
 - npm
 
-Run all checks:
+Run the checks that protect every change:
 
 ```sh
 npm ci
@@ -576,6 +576,23 @@ npm run typecheck
 npm test
 npm run check:package
 ```
+
+Then check host compatibility, which is what the `host-compat` CI job runs and the one check the list above
+cannot make locally: it installs the selected Pi in a temporary workspace and, against that host, typechecks the
+source, runs the suite, and loads the **packed artifact** through that host's own `pi` CLI. `peerDependencies`
+is `"*"`, so users load this extension in Pi versions the repository does not pin; a host that moves a type or
+rejects a tool schema fails here, not in the pinned dev dependency.
+
+```sh
+npm run check:host                     # the latest published Pi
+node scripts/check-host-compat.mjs --host 1.5.2 --dir /tmp/host-gate   # a chosen version, kept for re-runs
+node scripts/check-host-compat.mjs --dir /tmp/host-gate --typecheck-only    # one stage: --tests-only, --artifact-only
+```
+
+CI runs both groups, as separate jobs: `verify` runs `npm run check` (the three commands above), and `host-compat`
+runs `node scripts/check-host-compat.mjs` against the latest published Pi.
+Run `npm run check:host` before raising the supported Pi range, and before publishing from a tag that is not on
+`main` (a tag on `main` inherits the check from that branch's run).
 
 Run the performance benchmark:
 
