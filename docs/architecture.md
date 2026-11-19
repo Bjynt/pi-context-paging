@@ -277,11 +277,19 @@ Every `session_start` clears the override before settings load, including new se
 Branch navigation, model changes, and compaction do not clear the override.
 The command does not write settings or session entries.
 
+A host that predates `sessionManager.buildSessionProjection()` is a third force-off, and it is measured, not declared:
+`MINIMUM_PI_VERSION` in `src/index.ts`, `COMPAT_FLOOR` in `scripts/check-host-compat.mjs`, the peer range in
+`package.json`, the README section, and the CI matrix all carry the same version, pinned by
+`tests/host-compat-contract.test.ts`. `session_start` probes the capability by calling the API — the recall replay rig
+records host interactions by path and arguments, so a property read is an interaction no recording made — and on a miss
+forces paging off for the session, reports the requirement once, refuses `/context-paging on` with the same sentence,
+and leaves the paging path touching no projection API at all. The recovery tools already refuse while paging is off.
+
 When `ctx.hasUI` is true, the extension publishes `isEnabled()` with `ctx.ui.setStatus("context-paging", text)`.
 The text is exactly `paging on` or `paging off`, without ANSI styling.
 Custom footers read the value from `footerData.getExtensionStatuses()`.
 Session start publishes the status after settings resolution.
-If settings load throws, the extension publishes the disabled fallback status. The settings error still propagates. Every `on` or `off` command publishes the effective status, including repeated choices.
+If settings load throws, the extension publishes the disabled fallback status: the enabled flag is cleared before the files are read, so a load that explodes cannot leave paging running on values the user did not express. The settings error is reported once and does not propagate, because a `session_start` that rejects skips the refresh that follows it. Every `on` or `off` command publishes the effective status, including repeated choices.
 Status queries, stats queries, and invalid arguments leave the status alone.
 Session shutdown clears only this status key. Headless sessions skip these UI calls.
 

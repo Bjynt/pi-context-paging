@@ -420,7 +420,9 @@ export default function contextPagingExtension(
 				notifySafely(ctx, capabilityReport());
 			}
 		} catch (error) {
-			// Settings loading is best effort: paging starts on defaults and reports, never blocks the session.
+			// Settings loading is best effort: the session is never blocked and the failure is reported once. The flag
+			// was cleared above, before any file was read, so a load that explodes cannot leave paging enabled on values
+			// the user did not express. Pinned by the reload test in tests/index-status.test.ts.
 			notifySafely(ctx, `Context paging settings are unavailable: ${errorMessage(error)}`);
 		} finally {
 			publishStatus(ctx);
