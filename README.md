@@ -122,6 +122,11 @@ If the model window is smaller than the budget, the extension scales the target 
 The minimum target is one token.
 
 Both token settings accept positive safe integers only.
+
+A setting whose value cannot be read is ignored, the next source (or the default) applies, and the extension
+names the key, the file and the value it received — once per session, not on every reload. The trap worth
+knowing about is a quoted boolean: `"enabled": "false"` is a string, so paging uses the default and stays on.
+Write `"enabled": false`. Unread keys inside `contextPaging` are reported the same way.
 The extension does not convert strings, fractions, or other invalid values.
 An invalid project value does not apply. The extension then uses the global value, or the default.
 If a project sets a lower budget, an explicit global target stays explicit.

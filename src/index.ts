@@ -56,10 +56,33 @@ async function readJsonSettings(path: string, report: (message: string) => void,
 	}
 }
 
+function isRecordLike(value: unknown): value is { contextPaging: Record<string, unknown> } {
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		&& typeof (value as { contextPaging?: unknown }).contextPaging === "object"
+		&& (value as { contextPaging?: unknown }).contextPaging !== null
+		&& !Array.isArray((value as { contextPaging?: unknown }).contextPaging);
+}
+
+function describeValue(value: unknown): string {
+	if (value === null) return "null";
+	if (Array.isArray(value)) return "an array";
+	return typeof value === "string" ? `the string "${value}"` : `a ${typeof value} ${String(value)}`;
+}
+
 function reportUnreadSettings(notice: (message: string) => void, path: string, scope: string, settings: unknown): void {
 	// A key the parser never reads is a silent no-op: the user edited a file and nothing changed. Report it, and
 	// leave paging on — the rest of the configuration is valid, unlike a file that cannot be parsed at all.
-	const { ignored, malformed } = inspectContextPagingSettings(settings);
+	const { ignored, unusable, malformed } = inspectContextPagingSettings(settings);
+	const section = isRecordLike(settings) ? settings.contextPaging : undefined;
+	for (const { key, expected } of unusable) {
+		// Resolution deliberately falls through an unusable value to the next source or the default; what was
+		// missing is the report. `enabled` matters most, because falling through to the default turns an
+		// intrusive feature ON when the user's file appears to say otherwise.
+		notice(`${scope} settings in ${path} have a "contextPaging" "${key}" value that is not ${expected} `
+			+ `(received ${describeValue(section ? section[key] : undefined)}), so it is not read. ${key === "enabled"
+				? `Write "enabled": false to keep paging off, or "enabled": true to turn it on.`
+				: `Write ${key} as a number, for example ${key}: 64000.`}`);
+	}
 	if (malformed) {
 		notice(`${scope} settings in ${path} have a "contextPaging" value that is not an object, so its settings`
 			+ " are not read.");

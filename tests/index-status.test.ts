@@ -338,3 +338,40 @@ test("an unread key is reported once across settings reloads, and a new key is r
 	assert.equal(keys.length, 2, "a different unread key is a different problem and is reported");
 	assert.equal(harness.statuses.get("context-paging"), "paging on");
 });
+
+// A quoted "false" is the most common way this file says nothing: resolution falls through to the default (the
+// documented contract, tested in tests/index.test.ts), so the report is the only signal the user gets.
+test("an unusable enabled value is reported by key, file and expectation, and says how to write it", async (t) => {
+	const path = await settingsFile(t);
+	await writeFile(path, JSON.stringify({ contextPaging: { enabled: "false" } }));
+	const harness = statusHarness();
+	await harness.emit("session_start");
+	const notice = harness.notifications.find(note => note.message.includes("enabled"));
+	assert.ok(notice, `the key is named, got ${JSON.stringify(harness.notifications.map(n => n.message))}`);
+	assert.match(notice!.message, /Global settings in .*settings\.json/);
+	assert.match(notice!.message, /true or false/);
+	assert.match(notice!.message, /"false"/, "the received value is named so the user sees their own quote");
+	assert.match(notice!.message, /"enabled": false/);
+	assert.equal(notice!.level, "warning");
+	assert.equal(harness.statuses.get("context-paging"), "paging on",
+		"an unusable value falls through to the documented default; the report is the fix");
+});
+
+test("an unusable token value is reported with the key that needs it", async (t) => {
+	const path = await settingsFile(t);
+	await writeFile(path, JSON.stringify({ contextPaging: { tokenBudget: "64000", trimToTokens: 80_000.5 } }));
+	const harness = statusHarness();
+	await harness.emit("session_start");
+	const keys = harness.notifications.filter(note => note.message.includes("tokenBudget") || note.message.includes("trimToTokens"));
+	assert.equal(keys.length, 2, `one report per key, got ${JSON.stringify(keys.map(n => n.message))}`);
+	assert.ok(keys.every(note => /64000|80000\.5/.test(note.message)), "the received values are named");
+});
+
+test("a boolean enabled and whole-number tokens produce no report", async (t) => {
+	const path = await settingsFile(t);
+	await writeFile(path, JSON.stringify({ contextPaging: { enabled: false } }));
+	const harness = statusHarness();
+	await harness.emit("session_start");
+	assert.deepEqual(harness.notifications, [], "a valid file is never commented on");
+	assert.equal(harness.statuses.get("context-paging"), "paging off", "false is false");
+});
