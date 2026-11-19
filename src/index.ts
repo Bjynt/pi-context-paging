@@ -144,6 +144,14 @@ const MINIMUM_PI_VERSION = "0.87.0";
  * replays them in order, so a property read of `buildSessionProjection` is an interaction no recording ever
  * made; the call is the boundary the rig already knows (`eval/recall/paging-replay-input.ts:61`).
  */
+/**
+ * The one wording for "this host cannot page history". Both places that need to say it -- the session-start
+ * report and a refused `/context-paging on` -- use it, so the requirement a user is told never drifts.
+ */
+function capabilityReport(): string {
+	return `Context paging: this Pi has no sessionManager.buildSessionProjection(), so history paging requires Pi ${MINIMUM_PI_VERSION} or newer, and context paging stays off for this session.`;
+}
+
 function hostSupportsSessionProjection(ctx: ExtensionContext): boolean {
 	try {
 		ctx.sessionManager.buildSessionProjection();
@@ -354,6 +362,14 @@ export default function contextPagingExtension(
 			}
 			if (action === "on" || action === "off") {
 				const enabled = action === "on";
+				// The per-session switch outranks the settings default, so it has to honour the capability check too.
+				// Reporting success on a host that cannot page leaves the user trusting a status line that protects
+				// nothing: paging would page nothing, silently. Refuse, name the requirement, keep the status honest.
+				if (enabled && hostPagingUnsupported) {
+					notifySafely(ctx, capabilityReport(), "warning");
+					publishStatus(ctx);
+					return;
+				}
 				if (enabled !== isEnabled()) resetPagingState();
 				sessionEnabled = enabled;
 				publishStatus(ctx);
@@ -401,7 +417,7 @@ export default function contextPagingExtension(
 			hostPagingUnsupported = !hostSupportsSessionProjection(ctx);
 			if (hostPagingUnsupported) {
 				resolvedSettings = { ...resolvedSettings, enabled: false };
-				notifySafely(ctx, `Context paging: this Pi has no sessionManager.buildSessionProjection(), so history paging requires Pi ${MINIMUM_PI_VERSION} or newer, and context paging stays off for this session.`);
+				notifySafely(ctx, capabilityReport());
 			}
 		} catch (error) {
 			// Settings loading is best effort: paging starts on defaults and reports, never blocks the session.

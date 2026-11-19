@@ -399,3 +399,31 @@ test("a host that provides the session-projection API gets no capability report"
 	);
 	assert.notEqual(harness.statuses.get("context-paging"), "paging off");
 });
+
+test("paging cannot be turned on for a host that cannot page, and the reason is named", async () => {
+	// The failure this removes: `/context-paging on` on a pre-0.87.0 host answered "Context paging is enabled for
+	// this session." and the status line read `paging on`, while the extension knew the host has no session-projection
+	// API. The user trusted a status line that protected nothing -- paging silently paged nothing.
+	const harness = statusHarness(undefined, { sessionProjection: false });
+	await harness.emit("session_start");
+	await harness.command("on");
+	assert.ok(
+		!harness.notifications.some((note) => note.message.includes("is enabled")),
+		"never report success for a state this host cannot honour: " + JSON.stringify(harness.notifications.map((note) => note.message)),
+	);
+	const last = harness.notifications[harness.notifications.length - 1]!;
+	assert.match(last.message, /0\.87\.0/, "the refusal names the Pi version the extension requires");
+	assert.equal(harness.statuses.get("context-paging"), "paging off", "the status line stays honest");
+});
+
+test("a capable host still turns paging on with the plain report", async () => {
+	const harness = statusHarness();
+	await harness.emit("session_start");
+	await harness.command("on");
+	assert.match(
+		harness.notifications[harness.notifications.length - 1]!.message,
+		/Context paging is enabled for this session\./,
+		"the capability refusal must not leak onto hosts that can page",
+	);
+	assert.equal(harness.statuses.get("context-paging"), "paging on");
+});
