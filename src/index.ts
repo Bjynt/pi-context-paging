@@ -27,12 +27,14 @@ import {
 export { resolveContextPagingSettings } from "./settings.ts";
 export type { ContextPagingSettingsSources, ResolvedContextPagingSettings } from "./settings.ts";
 
-function notifySafely(ctx: ExtensionContext, message: string): void {
-	if (!ctx.hasUI) return;
-	// The report is best effort: a host whose UI call fails must not turn a settings warning into a
-	// rejected session_start, which is the failure this loader exists to prevent.
+function notifySafely(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error" = "warning"): void {
+	// One reporting primitive for the whole extension. A lifecycle path can run with no UI surface at all
+	// (a headless host has no ctx.ui), and a host whose notify call throws must not turn a report into a
+	// rejected event handler: the report is what the user needs when something else already failed.
+	// Capability, not `hasUI`, is the right test — a non-TUI host still receives notifications.
+	if (typeof (ctx.ui as { notify?: unknown } | undefined)?.notify !== "function") return;
 	try {
-		ctx.ui.notify(message, "warning");
+		ctx.ui.notify(message, level);
 	} catch {}
 }
 
@@ -162,7 +164,7 @@ export default function contextPagingExtension(
 		const pair = `${tokenBudget}:${trimToTokens}`;
 		if (warnedSettingPairs.has(pair)) return;
 		warnedSettingPairs.add(pair);
-		ctx.ui.notify(`Context paging tokenBudget=${tokenBudget}, trimToTokens=${trimToTokens} leaves no headroom. A smaller trimToTokens restores room between cuts.`, "warning");
+		notifySafely(ctx, `Context paging tokenBudget=${tokenBudget}, trimToTokens=${trimToTokens} leaves no headroom. A smaller trimToTokens restores room between cuts.`, "warning");
 	};
 	let visibleHistoryIds: string[] = [];
 	let invalidatingBranchEntries = new Set<string>();
@@ -214,7 +216,7 @@ export default function contextPagingExtension(
 		} catch (error) {
 			usageTracker.clear();
 			canonicalSessionMessages = undefined;
-			ctx.ui.notify(`Context paging navigation is unavailable: ${errorMessage(error)}`, "error");
+			notifySafely(ctx, `Context paging navigation is unavailable: ${errorMessage(error)}`, "error");
 		}
 	};
 
@@ -224,27 +226,27 @@ export default function contextPagingExtension(
 			const action = args.trim();
 			if (action === "stats") {
 				try {
-					ctx.ui.notify(await contextPagingStats(ctx, isEnabled(), resolvedSettings.tokenBudget, latestInput), "info");
+					notifySafely(ctx, await contextPagingStats(ctx, isEnabled(), resolvedSettings.tokenBudget, latestInput), "info");
 				} catch (error) {
-					ctx.ui.notify(`Context paging stats are unavailable: ${errorMessage(error)}`, "warning");
+					notifySafely(ctx, `Context paging stats are unavailable: ${errorMessage(error)}`, "warning");
 				}
 				return;
 			}
 			const rotateCommand = parseRotateCommand(action);
 			if (rotateCommand.kind === "invalid") {
-				ctx.ui.notify(COMMAND_USAGE, "warning");
+				notifySafely(ctx, COMMAND_USAGE, "warning");
 				return;
 			}
 			if (rotateCommand.kind === "rotate") {
 				if (!isEnabled()) {
-					ctx.ui.notify("Context paging is disabled for this session.", "warning");
+					notifySafely(ctx, "Context paging is disabled for this session.", "warning");
 					return;
 				}
 				const { tokenBudget } = resolvedSettings;
 				const requested = rotateCommand.trimToTokens ?? resolvedSettings.trimToTokens;
 				// selectContext caps the target at the budget, so a target at or above it would rotate nothing.
 				if (tokenBudget <= requested) {
-					ctx.ui.notify(`Rotation target must be below the ${tokenBudget.toLocaleString("en-US")}-token budget.`, "warning");
+					notifySafely(ctx, `Rotation target must be below the ${tokenBudget.toLocaleString("en-US")}-token budget.`, "warning");
 					return;
 				}
 				let effective: number;
@@ -254,11 +256,11 @@ export default function contextPagingExtension(
 						tokenBudget, trimToTokens: requested, modelContextWindow: ctx.model?.contextWindow,
 					}).trimToTokens;
 				} catch (error) {
-					ctx.ui.notify(`Context paging cannot rotate: ${errorMessage(error)}`, "warning");
+					notifySafely(ctx, `Context paging cannot rotate: ${errorMessage(error)}`, "warning");
 					return;
 				}
 				pendingRotation = { trimToTokens: rotateCommand.trimToTokens };
-				ctx.ui.notify(`Context paging will rotate to ${effective.toLocaleString("en-US")} tokens on the next request.`, "info");
+				notifySafely(ctx, `Context paging will rotate to ${effective.toLocaleString("en-US")} tokens on the next request.`, "info");
 				return;
 			}
 			if (action === "on" || action === "off") {
@@ -267,10 +269,10 @@ export default function contextPagingExtension(
 				sessionEnabled = enabled;
 				publishStatus(ctx);
 			} else if (action !== "" && action !== "status") {
-				ctx.ui.notify(COMMAND_USAGE, "warning");
+				notifySafely(ctx, COMMAND_USAGE, "warning");
 				return;
 			}
-			ctx.ui.notify(`Context paging is ${isEnabled() ? "enabled" : "disabled"} for this session.`, "info");
+			notifySafely(ctx, `Context paging is ${isEnabled() ? "enabled" : "disabled"} for this session.`, "info");
 		},
 	});
 
@@ -336,7 +338,7 @@ export default function contextPagingExtension(
 		} catch (error) {
 			usageTracker.clear();
 			canonicalSessionMessages = undefined;
-			ctx.ui.notify(`Context paging history is unavailable: ${errorMessage(error)}`, "error");
+			notifySafely(ctx, `Context paging history is unavailable: ${errorMessage(error)}`, "error");
 		}
 		usageTracker.bindKeys(rawHistoryItems ? historyItemKeyResolver(rawHistoryItems) : undefined);
 
@@ -376,13 +378,13 @@ export default function contextPagingExtension(
 				// Cleared alongside the commit: this handler is synchronous, so later tool calls in the turn do not rotate again.
 				pendingRotation = undefined;
 				const outcome = rotationOutcome(selection, contextTokenLimits(selectionLimits).trimToTokens);
-				ctx.ui.notify(outcome.message, outcome.level);
+				notifySafely(ctx, outcome.message, outcome.level);
 			}
 			latestInput = { tokens: selection.estimatedTokens, estimated: true };
 			return { messages: selection.messages };
 		} catch (error) {
 			ctx.abort();
-			ctx.ui.notify(`Context paging aborted this provider call: ${errorMessage(error)}`, "error");
+			notifySafely(ctx, `Context paging aborted this provider call: ${errorMessage(error)}`, "error");
 			return { messages: event.messages };
 		}
 	});

@@ -227,14 +227,15 @@ test("a malformed project file is named, the global settings survive, and an unt
 	assert.equal(untrusted.statuses.get("context-paging"), "paging on", "the global settings apply untouched");
 });
 
-test("a headless session survives an unusable settings file without touching the UI", async (t) => {
+test("a session whose host has no notification surface survives an unusable settings file", async (t) => {
 	const path = await settingsFile(t);
 	await writeFile(path, "{");
 	const harness = statusHarness();
+	// A headless host: no UI surface at all, and `hasUI` false.
 	harness.ctx.hasUI = false;
+	(harness.ctx as { ui?: unknown }).ui = undefined;
 	await harness.emit("session_start");
-	assert.deepEqual(harness.notifications, [], "a session with no UI is sent no notification");
-	assert.deepEqual(harness.writes, [], "and no status is published");
+	assert.equal(harness.statuses.get("context-paging"), undefined, "no UI means no published status");
 });
 
 test("a reporting failure cannot take down session start", async (t) => {
@@ -244,4 +245,41 @@ test("a reporting failure cannot take down session start", async (t) => {
 	harness.ctx.ui.notify = () => { throw new Error("Notify is unavailable in this host"); };
 	await harness.emit("session_start");
 	assert.equal(harness.statuses.get("context-paging"), "paging off", "the status still publishes and the session continues");
+});
+
+// Reporting is what the user needs when something else has already failed, so the report itself must
+// never be the thing that breaks the session: hosts differ in what UI surface they provide.
+function failingRefresh(harness: ReturnType<typeof statusHarness>) {
+	harness.ctx.sessionManager.getBranch = () => { throw new Error("BRANCH_READ_FAILURE"); };
+	return harness;
+}
+
+test("a refresh failure with no notification surface on a headless host is survived", async () => {
+	const harness = failingRefresh(statusHarness());
+	harness.ctx.hasUI = false;
+	(harness.ctx as { ui?: unknown }).ui = undefined;
+	for (const event of ["session_start", "turn_end", "session_tree"] as const) await harness.emit(event);
+	assert.equal(harness.statuses.get("context-paging"), undefined, "a host with no UI gets no status");
+});
+
+test("a host that exposes a UI object without a notify function is survived", async () => {
+	const harness = failingRefresh(statusHarness());
+	(harness.ctx.ui as { notify?: unknown }).notify = undefined;
+	for (const event of ["turn_end", "session_tree"] as const) await harness.emit(event);
+	assert.ok(true, "the report is skipped, not thrown");
+});
+
+test("a host whose notify call throws cannot turn a report into an event failure", async () => {
+	const harness = failingRefresh(statusHarness());
+	harness.ctx.ui.notify = () => { throw new Error("NOTIFY_UNAVAILABLE"); };
+	for (const event of ["session_start", "turn_end", "session_tree"] as const) await harness.emit(event);
+	assert.equal(harness.writes.length > 0, true, "status publication still ran, so the session keeps working");
+});
+
+test("a non-TUI host still receives the report", async () => {
+	const harness = failingRefresh(statusHarness());
+	harness.ctx.hasUI = false;
+	await harness.emit("turn_end");
+	assert.equal(harness.notifications.length, 1, "notifications are about the host's capability, not the TUI flag");
+	assert.match(harness.notifications[0]!.message, /Context paging navigation is unavailable: BRANCH_READ_FAILURE/);
 });
