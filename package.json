@@ -18,7 +18,8 @@
     "check:package": "node scripts/smoke-packed-artifact.mjs",
     "check:release": "node scripts/check-release-metadata.mjs",
     "check:host": "node scripts/check-host-compat.mjs",
-    "check": "npm run check:release && npm run typecheck && npm test && npm run check:package"
+    "check": "npm run check:release && npm run typecheck && npm test && npm run check:package",
+"prepublishOnly": "npm run check"
   },
   "files": [
     "src",

@@ -53,6 +53,18 @@ test("the extension's own capability floor is the version the gate enforces", ()
 	assert.equal(declared[1], printedFloor(), "the runtime capability floor and the gate floor must agree");
 });
 
+test("publishing runs the checks from every path, not only from CI", () => {
+	// publish.yml runs the gates, and check-release-metadata.mjs counts on that: "publish.yml already refuses to
+	// publish". A tag pushed and published from a laptop, or a plain `npm publish`, reaches the registry with no
+	// typecheck, no suite, no packed-artifact smoke and no release-pin check -- every gate in this repo is
+	// bypassable through that path. npm runs `prepublishOnly` for the package being published, and only there:
+	// `npm pack` (the host gate) and consumer installs are untouched.
+	const scripts = JSON.parse(read("package.json")).scripts as Record<string, string>;
+	assert.ok(scripts.prepublishOnly, "package.json must gate the publish path itself");
+	assert.match(scripts.prepublishOnly, /npm run check\b/, "the hook must run the same chain CI runs");
+	assert.ok(!scripts.prepublishOnly.includes("check:host"), "the hook cannot install published hosts: offline publishing must stay possible");
+});
+
 test("the manifest refuses to install on a host below the floor", () => {
 	// The floor is a measured API boundary, so it has to reach the installer. With "*" peers npm places this
 	// extension on a host that cannot page history at all, the four tools register, and the failure surfaces on

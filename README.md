@@ -605,6 +605,10 @@ npm run check:release
 npm run typecheck
 npm test
 npm run check:package
+
+`npm publish` runs `npm run check` first, from every path and not only from CI. The one check it cannot run
+locally is `npm run check:host`, which installs published Pi releases; the Publish workflow runs that
+step, and it is deliberately not in the hook, so publishing offline is possible and publishing unverified is not.
 ```
 
 Then check host compatibility, which is what the `host-compat` CI job runs and the one check the list above
