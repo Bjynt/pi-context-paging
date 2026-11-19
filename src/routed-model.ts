@@ -6,6 +6,10 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
  * the hook for the same request:
  *
  *     pi.events.emit("context-paging:route", { version: 1, provider: model.provider, id: model.id });
+ *
+ * That ordering exists only on a Pi with virtual-model routing (the 1.5 line; the 0.87 line
+ * this package is developed against has no virtual models and never calls `route()`). With no
+ * routing there is no report to take, so `requestLimits` reports the declared window.
  */
 export const ROUTE_CHANNEL = "context-paging:route";
 

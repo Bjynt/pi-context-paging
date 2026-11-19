@@ -151,6 +151,9 @@ A switch to another routed model resets the cut, as a model switch does.
 If the reported model is not a physical model in the registry, or its window is invalid, the extension aborts the request.
 The extension ignores payloads with another `version`.
 
+This report needs a Pi that routes: `route()` only runs on a Pi release with virtual models (the 1.5 line; the 0.87 line this package is developed against has no virtual models and never calls `route()`).
+On a Pi without it, no report is ever made, the extension uses the declared window, and a route to a smaller model is not caught — paging cannot warn you, because from its side nothing happened.
+
 Without a report, the extension uses the window that the virtual model declares.
 If the virtual model declares no window, the window is unknown, and the effective budget is `tokenBudget`.
 In both cases, set `tokenBudget` no higher than the smallest context window the router can choose.

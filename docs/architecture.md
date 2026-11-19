@@ -109,6 +109,8 @@ The effective budget is the smaller of the configured budget and model window, w
 For a physical model, it is the model's own window.
 For a virtual model, Pi exposes only the selection, not the routed model.
 A router can report the routed model from `route()` on the `context-paging:route` event channel, with `{ version: 1, provider, id }`.
+That ordering is a property of Pi's virtual-model routing, which needs a Pi release that has it (the 1.5 line; this package is developed against 0.87, which has no virtual models and never calls `route()`).
+On a Pi without routing, `requestLimits` never sees a virtual model: no report is made and the declared window applies.
 A report belongs to one request. Pi emits `turn_start` before every request, then calls `route()`, then the `context` event, and awaits each step.
 `turn_start` opens a request for the current selection. The extension keeps the newest report made while a request is open.
 The `context` event takes the report and closes the request, even when paging is off. It ignores a report made under a different selection.
