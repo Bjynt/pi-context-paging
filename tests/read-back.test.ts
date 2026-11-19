@@ -299,3 +299,18 @@ test("search and browse replies keep everything in content", async () => {
 	assert.equal(payload(await execute("search_history", { query: "needle", load: true })).items[0].id, "u");
 	assert.equal(payload(await execute("browse_history", { direction: "forward" })).references[0].historyId, "u");
 });
+
+// The host validates arguments against `parameters`, so a selector reaching the handler outside the schema is
+// a host/schema disagreement. Reading `source: "assistantn"` as “no selector” would return the wrong entry.
+test("read_context_output rejects a selector outside its schema instead of reading it as absent", async () => {
+	const execute = registered([turn("t", [
+		{ type: "text", text: "The answer." },
+		{ type: "toolCall", id: "call", name: "bash", arguments: {} },
+	], [toolResult("call", "bash", "output")])]);
+	await assert.rejects(() => execute("read_context_output", { historyId: "t", source: "assistantn" }),
+		/source must be "assistant" or "toolResult"/);
+	await assert.rejects(() => execute("read_context_output", { historyId: "t", mode: "part" }),
+		/mode must be "text", "parts", or "image"/);
+	const inSchema = page(await execute("read_context_output", { historyId: "t", source: "assistant", mode: "text" }));
+	assert.equal(inSchema.text, "The answer.");
+});

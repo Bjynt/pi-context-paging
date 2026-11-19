@@ -131,7 +131,8 @@ function tests() {
 }
 
 let failed = false;
-if (!testsOnly) install();
+// --typecheck-only/--tests-only are staged probes of an already-installed workspace.
+if (!testsOnly && !typecheckOnly) install();
 sync();
 if (!testsOnly) failed = typecheck() || failed;
 if (!installOnly && !typecheckOnly) failed = tests() || failed;
