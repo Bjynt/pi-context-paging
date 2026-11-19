@@ -32,6 +32,10 @@ function withToolContext(ctx: ExtensionContext): ToolCallContext {
 	// observes, and a copy loses the bound methods and getters the tool call depends on.
 	const extras: Record<string, unknown> = { tools: [], executeTool: async () => { throw new Error("replay does not run nested tools"); } };
 	for (const [key, value] of Object.entries(extras)) {
+		// Only members the context lacks. A current Pi hands the tool handler its own `tools`/`executeTool`,
+		// non-configurably, and redefining one throws inside the observed call — which the tape would then
+		// report as an incomplete lifecycle instead of the real failure.
+		if (key in ctx) continue;
 		Object.defineProperty(ctx, key, { value, enumerable: false, configurable: true, writable: true });
 	}
 	return ctx as ToolCallContext;
@@ -64,6 +68,7 @@ export function createPagingReplay(settings: ContextPagingSettingsSources): Pagi
 	let restoring = false;
 	let attached = false;
 	let captureFailure = false;
+	let captureCause: unknown;
 	const capturedSettings = copyPrivate(settings);
 
 	async function observe(kind: Observation["kind"], name: string, event: unknown, ctx: ExtensionContext, invoke: Handler) {
@@ -81,7 +86,7 @@ export function createPagingReplay(settings: ContextPagingSettingsSources): Pagi
 			observation.output = copyPrivate(output);
 			observations.push(observation);
 			return output;
-		} catch (error) { captureFailure = true; throw error; }
+		} catch (error) { captureFailure = true; captureCause = error; throw error; }
 		finally { activeApi = undefined; }
 	}
 	let realApi: ExtensionAPI | undefined;
@@ -115,7 +120,13 @@ export function createPagingReplay(settings: ContextPagingSettingsSources): Pagi
 	return {
 		factory,
 		freeze() {
-			if (!attached || captureFailure || activeApi || restoring) throw new Error("Incomplete paging lifecycle tape");
+			if (!attached || captureFailure || activeApi || restoring) {
+				// The lifecycle flags say the tape is unusable; the captured error says why, and without it every
+				// handler failure reads as the same opaque tape problem.
+				const cause = captureCause instanceof Error ? `${captureCause.name}: ${captureCause.message}` : String(captureCause);
+				throw new Error(`Incomplete paging lifecycle tape (attached=${attached}, captureFailure=${captureFailure}, ` +
+					`activeApi=${activeApi !== undefined}, restoring=${restoring}${captureFailure ? `; captured failure: ${cause}` : ""})`);
+			}
 			const tape = Object.freeze({ method: PAGING_RESTORATION_METHOD,
 				toJSON() { throw new Error("Private paging tape must not be serialized"); } });
 			tapes.set(tape, { settings: copyPrivate(capturedSettings), observations: copyPrivate(observations) });

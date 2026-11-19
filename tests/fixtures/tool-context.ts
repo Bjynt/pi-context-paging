@@ -18,11 +18,15 @@ export type ToolCallContext = ExtensionContext & {
  * context object it observes, so replacing it with a copy would silently break bound methods and getters.
  */
 export function toolCallContext<T extends object>(ctx: T): T & ToolCallContext {
-	const extras = {
-		tools: [] as const,
+	const extras: Record<string, unknown> = {
+		tools: [],
 		executeTool: async () => { throw new Error("these fixtures do not run nested tools"); },
 	};
 	for (const [key, value] of Object.entries(extras)) {
+		// Supply only what the context lacks. A real Pi hands a tool handler its own `tools` and `executeTool`,
+		// non-configurably, and redefining one throws; the host's members are the ones a handler should use.
+		// The members are added for fixture contexts, which predate them.
+		if (key in ctx) continue;
 		Object.defineProperty(ctx, key, { value, enumerable: false, configurable: true, writable: true });
 	}
 	// One assertion for what TypeScript cannot infer about a generic; the declared return type binds the shape
