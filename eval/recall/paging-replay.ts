@@ -16,6 +16,27 @@ export type PagingReplay = {
 	restore(session: AgentSession, tape: PagingReplayTape): Promise<RestorationEvidence>;
 };
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
+
+/**
+ * Mirrors `tests/fixtures/tool-context.ts`: the members current Pi (1.5+) gives a tool handler beyond the
+ * extension context. The eval harness keeps its own copy because `eval/` does not import from `tests/`; the
+ * compiler binds both to the installed host, so a host-side rename fails the gate on every supported Pi.
+ */
+type ToolCallContext = ExtensionContext & {
+	readonly tools: readonly never[];
+	executeTool(name: string, args: unknown): Promise<never>;
+};
+
+function withToolContext(ctx: ExtensionContext): ToolCallContext {
+	// Defined on the observed context and returned as the same object: the tape records the context object it
+	// observes, and a copy loses the bound methods and getters the tool call depends on.
+	const extras: Record<string, unknown> = { tools: [], executeTool: async () => { throw new Error("replay does not run nested tools"); } };
+	for (const [key, value] of Object.entries(extras)) {
+		Object.defineProperty(ctx, key, { value, enumerable: false, configurable: true, writable: true });
+	}
+	return ctx as ToolCallContext;
+}
+
 type ResidentInputs = {
 	model: ExtensionContext["model"];
 	systemPrompt: string;
@@ -79,7 +100,7 @@ export function createPagingReplay(settings: ContextPagingSettingsSources): Pagi
 					tools.set(tool.name, tool);
 					pi.registerTool({ ...tool, execute: (id, args, signal, update, ctx) =>
 						observe("tool", tool.name, { id, args, signal }, ctx,
-							(event, host) => tool.execute(event.id, event.args, event.signal, update, host)) as any });
+							(event, host) => tool.execute(event.id, event.args, event.signal, update, withToolContext(host))) as any });
 				};
 				if (property === "getActiveTools" || property === "getAllTools") {
 					const api = activeApi ?? target;
@@ -131,7 +152,7 @@ export function createPagingReplay(settings: ContextPagingSettingsSources): Pagi
 						const tool = tools.get(observation.name);
 						check(`tool-present-${index}`, !!tool);
 						const call = event as { id: string; args: any; signal: AbortSignal | undefined };
-						output = await tool!.execute(call.id, call.args, call.signal, undefined, host.at<ExtensionContext>("ctx"));
+						output = await tool!.execute(call.id, call.args, call.signal, undefined, withToolContext(host.at<ExtensionContext>("ctx")));
 					}
 					host.assertConsumed();
 					check(`handler-output-match-${index}`, equalPrivate(output, observation.output));

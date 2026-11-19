@@ -4,6 +4,7 @@ import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-w
 import type { HistoryItem, ModelTurnHistoryItem, UserHistoryItem } from "../src/history.ts";
 import { HistoryNavigator } from "../src/navigator.ts";
 import { registerContextPagingTools } from "../src/tools.ts";
+import { toolCallContext } from "./fixtures/tool-context.ts";
 
 function user(id: string, content: UserHistoryItem["userMessage"]["content"], sequence = 0): UserHistoryItem {
 	return { id, kind: "user", sequence, timestamp: "2026-10-31T00:00:00.000Z",
@@ -28,7 +29,7 @@ function registered(items: HistoryItem[]) {
 	});
 	return async (name: string, params: unknown): Promise<any> => {
 		const tool = tools.find((candidate) => candidate.name === name)!;
-		return tool.execute("test-call", params, undefined, undefined, {} as ExtensionContext);
+		return tool.execute("test-call", params, undefined, undefined, toolCallContext({}));
 	};
 }
 
