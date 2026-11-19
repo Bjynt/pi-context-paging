@@ -20,12 +20,13 @@ import { contextPagingStats, reportedInputTokens, type InputTokenCount } from ".
 import { modelKey, requestLimits, RouteReports, type RequestLimits } from "./routed-model.ts";
 
 import {
+	inspectContextPagingSettings,
 	resolveContextPagingSettings,
 	type ContextPagingSettingsSources,
 	type ResolvedContextPagingSettings,
 } from "./settings.ts";
 
-export { resolveContextPagingSettings } from "./settings.ts";
+export { inspectContextPagingSettings, resolveContextPagingSettings } from "./settings.ts";
 export type { ContextPagingSettingsSources, ResolvedContextPagingSettings } from "./settings.ts";
 
 function notifySafely(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error" = "warning"): void {
@@ -55,7 +56,26 @@ async function readJsonSettings(path: string, report: (message: string) => void,
 	}
 }
 
-async function loadSettings(ctx: ExtensionContext, report: (message: string) => void): Promise<ContextPagingSettingsSources> {
+function reportUnreadSettings(notice: (message: string) => void, path: string, scope: string, settings: unknown): void {
+	// A key the parser never reads is a silent no-op: the user edited a file and nothing changed. Report it, and
+	// leave paging on — the rest of the configuration is valid, unlike a file that cannot be parsed at all.
+	const { ignored, malformed } = inspectContextPagingSettings(settings);
+	if (malformed) {
+		notice(`${scope} settings in ${path} have a "contextPaging" value that is not an object, so its settings`
+			+ " are not read.");
+		return;
+	}
+	if (ignored.length > 0) {
+		notice(`${scope} settings in ${path} contain "contextPaging" key(s) that context paging does not read: `
+			+ `${ignored.join(", ")}. The keys are enabled, tokenBudget, trimToTokens.`);
+	}
+}
+
+async function loadSettings(
+	ctx: ExtensionContext,
+	report: (message: string) => void,
+	notice: (message: string) => void,
+): Promise<ContextPagingSettingsSources> {
 	const codingAgent = await import("@earendil-works/pi-coding-agent") as {
 		CONFIG_DIR_NAME?: string;
 		getAgentDir?: () => string;
@@ -63,13 +83,16 @@ async function loadSettings(ctx: ExtensionContext, report: (message: string) => 
 	const projectTrusted = ctx.isProjectTrusted();
 	const configDirectory = codingAgent.CONFIG_DIR_NAME ?? ".pi";
 	const agentDirectory = codingAgent.getAgentDir?.() ?? join(process.env.HOME ?? "", ".pi", "agent");
-	return {
-		globalSettings: await readJsonSettings(join(agentDirectory, "settings.json"), report, "Global"),
-		projectSettings: projectTrusted
-			? await readJsonSettings(join(ctx.cwd, configDirectory, "settings.json"), report, "Project")
-			: undefined,
-		projectTrusted,
-	};
+	const globalPath = join(agentDirectory, "settings.json");
+	const globalSettings = await readJsonSettings(globalPath, report, "Global");
+	reportUnreadSettings(notice, globalPath, "Global", globalSettings);
+	if (!projectTrusted) return { globalSettings, projectSettings: undefined, projectTrusted };
+	// The project path is built only for a trusted project, as before: an untrusted session must not read, stat,
+	// or name the project file at all, and a context without a cwd must not reach the join.
+	const projectPath = join(ctx.cwd, configDirectory, "settings.json");
+	const projectSettings = await readJsonSettings(projectPath, report, "Project");
+	reportUnreadSettings(notice, projectPath, "Project", projectSettings);
+	return { globalSettings, projectSettings, projectTrusted };
 }
 
 function errorMessage(error: unknown): string {
@@ -294,7 +317,15 @@ export default function contextPagingExtension(
 			if (!settingsSources) {
 				resolvedSettings = { ...resolvedSettings, enabled: false };
 				const problems: string[] = [];
-				resolvedSettings = resolveContextPagingSettings(await loadSettings(ctx, problem => problems.push(problem)));
+				const notices: string[] = [];
+				resolvedSettings = resolveContextPagingSettings(await loadSettings(
+					ctx,
+					problem => problems.push(problem),
+					message => notices.push(message),
+				));
+				// Unread keys are reported as they are found: paging stays on, because the settings that do exist
+				// were read successfully and the user needs to hear about the key, not lose the feature.
+				for (const message of notices) notifySafely(ctx, message);
 				if (problems.length) {
 					// Never enable an intrusive feature from a configuration the user did not successfully express.
 					resolvedSettings = { ...resolvedSettings, enabled: false };

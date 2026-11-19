@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defaultTrimToTokens, resolveContextPagingSettings } from "../src/settings.ts";
+import { defaultTrimToTokens, inspectContextPagingSettings, resolveContextPagingSettings } from "../src/settings.ts";
 
 const invalidTargets: unknown[] = [
 	0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY,
@@ -98,4 +98,27 @@ test("computes the adaptive default exactly for accepted integer boundaries", ()
 	assert.equal(defaultTrimToTokens(1), 1);
 	assert.equal(defaultTrimToTokens(Number.MAX_SAFE_INTEGER - 1), 5_629_499_534_213_118);
 	assert.equal(defaultTrimToTokens(Number.MAX_SAFE_INTEGER - 4), 5_629_499_534_213_116);
+});
+
+test("reports keys under contextPaging that no setting reads", () => {
+	// The keys the parser reads are the whole contract; anything else is a key the user believes works.
+	assert.deepEqual(inspectContextPagingSettings({ contextPaging: { enabled: true, tokenBudget: 1, trimToTokens: 1 } }),
+		{ ignored: [], malformed: false });
+	assert.deepEqual(inspectContextPagingSettings({ contextPaging: { tokenbudget: 64_000, enabled: true } }),
+		{ ignored: ["tokenbudget"], malformed: false });
+	assert.deepEqual(inspectContextPagingSettings({ contextPaging: { zoom: 1, budget: 1, TokenBudget: 1 } }),
+		{ ignored: ["TokenBudget", "budget", "zoom"], malformed: false }, "a stable, sorted report");
+});
+
+test("inspects settings it cannot read without throwing", () => {
+	for (const settings of [undefined, null, "contextPaging", 42, true, [], [{ contextPaging: {} }]]) {
+		assert.deepEqual(inspectContextPagingSettings(settings), { ignored: [], malformed: false },
+			`no report for ${JSON.stringify(settings)}: there is no contextPaging section to misname`);
+	}
+	assert.deepEqual(inspectContextPagingSettings({ contextPaging: { "": 1 } }), { ignored: [""], malformed: false });
+	// A section that is not an object cannot carry any setting, which is a louder problem than one bad key.
+	for (const section of [128_000, "128000", true, null, []]) {
+		assert.deepEqual(inspectContextPagingSettings({ contextPaging: section }), { ignored: [], malformed: true },
+			`a non-object contextPaging (${JSON.stringify(section)}) is reported as malformed`);
+	}
 });

@@ -33,6 +33,23 @@ function readTokenSetting(settings: unknown, key: "tokenBudget" | "trimToTokens"
 }
 
 /** Computes the adaptive target without rounding an integer product before division. */
+/** The settings this extension reads; anything else under `contextPaging` is a key the user believes works. */
+const CONTEXT_PAGING_KEYS = new Set(["enabled", "tokenBudget", "trimToTokens"]);
+
+export type ContextPagingSettingsInspection = {
+	/** Keys present under `contextPaging` that no setting reads, sorted for a stable report. */
+	readonly ignored: readonly string[];
+	/** `contextPaging` exists but is not an object, so none of the user's settings can be read. */
+	readonly malformed: boolean;
+};
+
+export function inspectContextPagingSettings(settings: unknown): ContextPagingSettingsInspection {
+	if (!isRecord(settings) || !("contextPaging" in settings)) return { ignored: [], malformed: false };
+	const section = settings.contextPaging;
+	if (!isRecord(section)) return { ignored: [], malformed: true };
+	return { ignored: Object.keys(section).filter((key) => !CONTEXT_PAGING_KEYS.has(key)).sort(), malformed: false };
+}
+
 export function defaultTrimToTokens(tokenBudget: number): number {
 	return Math.max(1, Number(BigInt(tokenBudget) * 5n / 8n));
 }

@@ -284,3 +284,39 @@ test("a non-TUI host still receives the report", async () => {
 	assert.equal(harness.notifications.length, 1, "notifications are about the host's capability, not the TUI flag");
 	assert.match(harness.notifications[0]!.message, /Context paging navigation is unavailable: BRANCH_READ_FAILURE/);
 });
+
+// A key the parser never reads is a silent no-op: the user edited settings.json and nothing changed. Unlike a file
+// that cannot be parsed, this configuration was read successfully, so the fix is to name the key and keep paging on.
+test("an unread contextPaging key is named and paging stays on", async (t) => {
+	const path = await settingsFile(t);
+	await writeFile(path, JSON.stringify({ contextPaging: { enabled: true, tokenbudget: 64_000 } }));
+	const harness = statusHarness();
+	await harness.emit("session_start");
+	const notice = harness.notifications.find(note => note.message.includes("tokenbudget"));
+	assert.ok(notice, `the unread key is named, got ${JSON.stringify(harness.notifications.map(n => n.message))}`);
+	assert.equal(notice!.level, "warning");
+	assert.match(notice!.message, /Global settings in .*settings\.json/);
+	assert.match(notice!.message, /tokenBudget/);
+	assert.equal(harness.statuses.get("context-paging"), "paging on", "an extra key is not a broken configuration");
+});
+
+test("a contextPaging value that is not an object is named, and defaults still start the session", async (t) => {
+	const path = await settingsFile(t);
+	await writeFile(path, `{ "contextPaging": 128000 }`);
+	const harness = statusHarness();
+	await harness.emit("session_start");
+	assert.equal(harness.notifications.length, 1);
+	assert.match(harness.notifications[0]!.message, /Global settings in .*settings\.json have a "contextPaging" value that is not an object/);
+	assert.equal(harness.statuses.get("context-paging"), "paging on", "the defaults are a legitimate configuration");
+});
+
+test("documented keys produce no report, in global and in trusted project settings", async (t) => {
+	const path = await settingsFile(t);
+	await writeFile(path, JSON.stringify({ contextPaging: { enabled: true, tokenBudget: 64_000, trimToTokens: 40_000 } }));
+	const global = statusHarness();
+	await global.emit("session_start");
+	assert.deepEqual(global.notifications, [], "the documented keys are the contract; naming them would be noise");
+	const project = statusHarness(undefined, { cwd: "/tmp", projectTrusted: true });
+	await project.emit("session_start");
+	assert.deepEqual(project.notifications, []);
+});
