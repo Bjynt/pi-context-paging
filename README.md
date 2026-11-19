@@ -592,6 +592,7 @@ Run the checks that protect every change:
 
 ```sh
 npm ci
+npm run check:release
 npm run typecheck
 npm test
 npm run check:package
