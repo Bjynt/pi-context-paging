@@ -210,7 +210,12 @@ try {
     `the packed extension calls host APIs this host does not provide: ${hostApis.missing.join("; ")}`,
   );
 
-  console.log(`verified ${packed.filename} and ${requiredTools.length} history tools, and the host APIs the extension calls`);
+  // Guarded members are named, never failed: src/ reaches them through `?.`, a capability test, or a failure
+  // path, so a host without one is a fact to record, not a reason to block a release.
+  const guarded = hostApis.optionalMissing.length === 0
+	? ""
+	: `; guarded members absent on this host: ${hostApis.optionalMissing.join(", ")}`;
+  console.log(`verified ${packed.filename} and ${requiredTools.length} history tools, and ${hostApis.checked.length} host APIs the extension calls${guarded}`);
 } catch (error) {
   failure = error;
 }
