@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { diagnosticCodes, ownedDiagnostic, safeDiagnostic } from "../eval/recall/safe-diagnostics.ts";
+import { readFileSync } from "node:fs";
+import { ownedDiagnostic, safeDiagnostic } from "../eval/recall/safe-diagnostics.ts";
+import { sanitizeArtifact } from "../eval/recall/safe-artifacts.ts";
 
 /**
  * The recall artifacts are shareable; provider and host strings are not. `safeDiagnostic` is a
@@ -54,21 +56,48 @@ test("absence is reported as absence, not as an unclassified diagnostic", () => 
 	assert.equal(safeDiagnostic(undefined), "unclassified-diagnostic");
 });
 
-test("the boundary vocabulary itself never carries private text into every artifact", () => {
-	// These strings are copied into shareable artifacts, so the allowlist must stay a vocabulary of
-	// harness tokens: no whitespace (free text), no path separators, no credential-shaped literals.
-	// Uppercase is allowed on purpose — codes name JS APIs (`native-calculateCost`) and stage labels.
+test("the allowlist that may cross into shareable artifacts is a vocabulary, not free text", () => {
+	// The allowlist is the privacy boundary for the `reason`/`failureCode` fields: whatever it contains is
+	// copied verbatim into artifacts that leave the machine, so its shape is a security contract. It is read
+	// from the module's own source so the shipped code keeps no test-only window into it.
+	const source = readFileSync(new URL("../eval/recall/safe-diagnostics.ts", import.meta.url), "utf8");
+	const block = /const codes = new Set\(`([\s\S]*?)`\.trim\(\)/.exec(source)?.[1];
+	assert.ok(block, "the allowlist must stay a literal vocabulary in safe-diagnostics.ts, not a computed set");
+	const vocabulary = block.trim().split(/\s+/);
+	assert.ok(vocabulary.length > 100, `expected the full harness vocabulary, saw ${vocabulary.length} tokens`);
+	// No whitespace (free text), no path separators, no credential-shaped literals. Uppercase is allowed on
+	// purpose: codes name JS APIs (`native-calculateCost`) and stage labels.
 	const banned: [RegExp, string][] = [
 		[/\s/, "whitespace"],
 		[/[/\\]/, "path separator"],
 		[/(?:sk-|ghp_|xox[baprs]-|api[_-]?key|secret|password|bearer)/i, "credential shape"],
 	];
-	assert.ok(diagnosticCodes.size > 0);
-	for (const code of diagnosticCodes) {
-		for (const [shape, label] of banned) {
-			assert.ok(!shape.test(code), `${label} in allowlisted code ${JSON.stringify(code)}`);
-		}
+	for (const code of vocabulary) {
+		assert.ok(safeDiagnostic(code) === code, `${JSON.stringify(code)} is in the vocabulary but does not cross the boundary`);
+		for (const [shape, label] of banned) assert.ok(!shape.test(code), `${label} in allowlisted code ${JSON.stringify(code)}`);
 	}
+});
+
+test("the artifact boundary keeps payload codes and harness diagnostics in their own fields", () => {
+	// `error` relays payload defects; `reason`/`failureCode` relay harness diagnostics. Neither field accepts
+	// the other's vocabulary, so a change that makes one the other's allowlist cannot silently widen what a
+	// shareable artifact repeats.
+	assert.deepEqual(sanitizeArtifact({ error: "invalid-tool-call" }), { error: "invalid-tool-call" });
+	assert.deepEqual(sanitizeArtifact({ error: "invalid-tool-call,invalid-payload" }), { error: "invalid-tool-call,invalid-payload" });
+	for (const code of ["max-pair-minutes", "candidate-evidence-incomplete", "native-calculateCost", "unclassified-diagnostic"]) {
+		assert.deepEqual(sanitizeArtifact({ error: code }), { error: { name: "Error" } },
+			`${code} names a harness outcome, not a payload defect`);
+	}
+	for (const text of ["ENOENT: no such file or directory, open '/home/dev/.pi/auth.json'", "Bearer sk-abcdefghijklmnopqrst",
+		"sk-abcdefghijklmnopqrst", "/etc/ssl/private/key.pem"]) {
+		assert.deepEqual(sanitizeArtifact({ error: text }), { error: { name: "Error" } }, "free text never crosses the boundary");
+	}
+	assert.deepEqual(sanitizeArtifact({ reason: "max-pair-minutes", failureCode: "paging-targets-not-excluded" }),
+		{ reason: "max-pair-minutes", failureCode: "paging-targets-not-excluded" });
+	assert.deepEqual(sanitizeArtifact({ reason: "reading /home/dev/.pi/auth.json" }), { reason: "unclassified-diagnostic" });
+	assert.deepEqual(sanitizeArtifact({ failureCode: "sk-abcdefghijklmnopqrst" }), { failureCode: "unclassified-diagnostic" });
+	assert.deepEqual(sanitizeArtifact({ reason: "invalid-tool-call" }), { reason: "unclassified-diagnostic" },
+		"a payload code is not a harness diagnostic, so it does not cross as one");
 });
 
 test("ownedDiagnostic is true only when the value crosses unchanged", () => {

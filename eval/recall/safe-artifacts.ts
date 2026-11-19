@@ -21,7 +21,10 @@ const safeErrorCodes = new Set(["EACCES", "EPERM", "ENOENT", "EEXIST", "EIO", "E
 const scopedErrorCodes = new Set(["pair-error", "abort-error", "snapshot-error", "dispose-error", "extension-error", "prompt-error",
 	"assistant-error", "assistant-aborted", "compaction-error", "unjoined-recovery-result", "artifact-error", "source-error",
 	"max-user-prompts", "max-requests-per-prompt", "max-requests-per-arm", "max-pair-minutes"]);
-const diagnosticCodes = new Set(["ambiguous-origin", "invalid-content", "unsupported-content", "invalid-tools", "invalid-tool",
+// Payload-diagnostic vocabulary, deliberately separate from the harness-owned diagnostics in
+// ./safe-diagnostics.ts: the `error` field of an artifact relays payload defects only, so the two
+// vocabularies must stay disjoint and this one must keep its own name.
+const payloadDiagnosticCodes = new Set(["ambiguous-origin", "invalid-content", "unsupported-content", "invalid-tools", "invalid-tool",
 	"unsupported-tool", "invalid-input-item", "invalid-opaque-state", "invalid-reasoning-summary", "invalid-tool-call",
 	"invalid-tool-output", "unsupported-input-item", "invalid-payload", "store-not-false", "prior-response-reference",
 	"invalid-model", "invalid-instructions", "invalid-input", "no-observation", "invalid-usage", "invalid-input-details",
@@ -38,7 +41,7 @@ export function sanitizeArtifact(value: unknown): unknown {
 	const ancestors = new WeakSet<object>();
 	function copy(current: unknown, field = "", parentField = ""): unknown {
 		if (field === "reason" || field === "failureCode") return safeDiagnostic(current);
-		if (typeof current === "string" && field === "error") return current.split(",").every(code => diagnosticCodes.has(code)) ? current : { name: "Error" };
+		if (typeof current === "string" && field === "error") return current.split(",").every(code => payloadDiagnosticCodes.has(code)) ? current : { name: "Error" };
 		if (current === null || typeof current === "string" || typeof current === "boolean") return current;
 		if (typeof current === "number") return Number.isFinite(current) ? current : null;
 		if (!current || typeof current !== "object") return null;
