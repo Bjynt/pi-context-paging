@@ -27,7 +27,7 @@ jobs:
 
       - name: Check package
         run: npm run check
-  # peerDependencies are "*", so users run this package on Pi releases the pinned dev host predates.
+  # The manifest declares a Pi floor (">=0.87.0" on the host peers), so users run this package on every Pi
   # This job runs the same gates against the two hosts that define the supported range: the measured floor
   # (COMPAT_FLOOR in scripts/check-host-compat.mjs) and the latest published host.
   host-compat:

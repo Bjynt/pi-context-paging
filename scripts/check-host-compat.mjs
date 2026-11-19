@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Runs this package's own gates against a *published* Pi host, not the one pinned in devDependencies.
 //
-// Why this exists: peerDependencies are "*", so the package installs under any Pi, while `npm run check`
+// Why this exists: the package supports every Pi from the peer floor up, while `npm run check`
 // typechecks and tests only against the pinned dev host. Drift on the host side — a changed tool-handler
 // context, a renamed model tag — is invisible to the pinned suite and shows up in the field. Two such
 // defects were found by hand in one session and nothing re-ran the probe, so the probe became this gate.
@@ -28,8 +28,9 @@ const HOST_PACKAGES = ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ag
  * Lowest published Pi whose APIs the request path actually finds, measured one version per run with the
  * artifact API probe (scripts/host-api-probe.ts): on 0.86.1 and every older host tested down to 0.74.0,
  * `sessionManager.buildSessionProjection()` is undefined, so `src/index.ts` throws on the first request that
- * reads the session projection — after registration succeeded and the tools appeared. `peerDependencies` is
- * "*", so npm installs there anyway; `--host floor` lets CI enforce this boundary instead of only latest.
+ * reads the session projection — after registration succeeded and the tools appeared. `peerDependencies`
+ * now declare the floor (`>=0.87.0`), so npm refuses an install below it, and `--host floor` lets CI enforce
+ * the same boundary at runtime, where a peer check can be bypassed, instead of testing only latest.
  * README.md states the same number and tests/host-compat-contract.test.ts pins all three together.
  */
 const COMPAT_FLOOR = "0.87.0";

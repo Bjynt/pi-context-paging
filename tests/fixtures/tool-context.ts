@@ -2,7 +2,8 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 /**
  * What current Pi (1.5+) hands a tool handler alongside the extension context: `tools` and `executeTool`, typed
- * by the host as `ExtensionToolContext`. This package supports every Pi (`peerDependencies: "*"`), and the
+ * by the host as `ExtensionToolContext`. This package supports Pi 0.87.0 and newer
+ * (`peerDependencies: ">=0.87.0"`), and the
  * dev host has no such type to import, so both harnesses describe the members structurally — the compiler binds
  * the shape, so a host that renames or reshapes them fails `npm run typecheck` on every Pi version, which is
  * the signal this fixture exists to provide.

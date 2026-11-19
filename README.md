@@ -88,13 +88,9 @@ After installation, restart Pi.
 
 ### Supported Pi versions
 
-Requires **Pi 0.87.0 or newer**. `peerDependencies` is `"*"`, so `pi install` succeeds on older hosts and the
-four history tools even register; the failure is later and louder, because the paging path calls
-`sessionManager.buildSessionProjection()`, which no host before 0.87.0 provides. The `host-compat` CI job enforces
-the boundary: against the floor it runs the runtime contract (typecheck, the packed artifact, and the host APIs the
-extension calls) via `--runtime-only`, and against latest it runs the whole suite. The suite is not run on the floor
-because `eval/recall` resolves models through the newest host's registry — on 0.87.0 that rig reports 39 failures
-while `src/` typechecks and the artifact loads.
+Requires **Pi 0.87.0 or newer**, and the manifest says so: the three `@earendil-works/*` peers are declared `>=0.87.0`, so an install into a host that cannot page history is refused by npm rather than installed. The floor is a measured API boundary — the paging path calls `sessionManager.buildSessionProjection()`, which no older host provides. If an install path ignores peer ranges, the extension notices the missing API when the session starts, keeps paging off for that session, and reports the requirement once: the conversation is never interrupted.
+
+The `host-compat` CI job enforces the boundary: against the floor it runs the runtime contract (typecheck, the packed artifact, and the host APIs the extension calls) via `--runtime-only`, and against latest it runs the whole suite. The suite is not run on the floor because `eval/recall` resolves models through the newest host's registry — on the floor that rig reports failures while `src/` typechecks and the artifact loads.
 
 ## Settings
 
@@ -463,6 +459,7 @@ Read [the architecture document](docs/architecture.md) for module and lifecycle 
 
 ## Changes in 0.3.11
 
+- Installing this extension on a Pi below the supported floor is refused by the package manifest (`>=0.87.0` on the host peers). An install that ignores peer ranges now turns paging off for the session and reports the requirement once, instead of failing the user's first provider request.
 - `load_history`, and `search_history` with `load: true`, return items whole, smallest first, while they fit the 16 KiB reply. Before, every item over 4 KiB came back as parts.
 - `read_context_output` text mode returns a JSON header block, then the page as a second block. Strings and text blocks with only `type` and `text` read as plain text without JSON escaping. Other parts read as exact JSON.
 - Pages fill the 16 KiB reply instead of stopping at 2,000 characters. While text remains, the header has `next`, the exact arguments for the next read. `limit` is optional, up to 16,384.

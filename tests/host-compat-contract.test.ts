@@ -8,9 +8,11 @@ import { join } from "node:path";
  * The supported-host boundary exists in three places that have to agree: the floor the gate resolves for
  * `--host floor`, the CI matrix that runs it, and the README that promises it to users.
  *
- * Drift here is user-visible, not cosmetic: `peerDependencies` is `"*"`, so `pi install` succeeds on Pi 0.86.1 and
- * the four history tools register — and then the first request that reads the session projection throws, because
- * that host has no `sessionManager.buildSessionProjection()`. Measured: 0.74.0, 0.80.1, 0.84.2, 0.86.0 and 0.86.1
+ * Drift here is user-visible, not cosmetic. Before the floor was enforced, `peerDependencies` was `"*"`, so
+ * `pi install` succeeded on Pi 0.86.1 and the four history tools registered — and then the first request that
+ * reads the session projection threw, because that host has no `sessionManager.buildSessionProjection()`. The
+ * peer range is what stops that install today; the capability guard in src/index.ts is the backstop for an
+ * installer that bypasses peer checks. Measured: 0.74.0, 0.80.1, 0.84.2, 0.86.0 and 0.86.1
  * fail; 0.87.0 and every newer host tested (1.0.4, 1.3.0, 1.5.2) pass.
  *
  * These tests pin the version token and the matrix entry, not the prose: the README can be reworded freely, and a
@@ -49,6 +51,19 @@ test("the extension's own capability floor is the version the gate enforces", ()
 	const declared = source.match(/const MINIMUM_PI_VERSION = "(\d+\.\d+\.\d+)"/);
 	assert.ok(declared, "src/index.ts must declare MINIMUM_PI_VERSION for the capability guard");
 	assert.equal(declared[1], printedFloor(), "the runtime capability floor and the gate floor must agree");
+});
+
+test("the manifest refuses to install on a host below the floor", () => {
+	// The floor is a measured API boundary, so it has to reach the installer. With "*" peers npm places this
+	// extension on a host that cannot page history at all, the four tools register, and the failure surfaces on
+	// the user's first provider request. A peer range is the one surface that stops it before it is installed.
+	const peers = JSON.parse(read("package.json")).peerDependencies as Record<string, string>;
+	const want = ">=" + printedFloor();
+	for (const name of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-agent-core", "@earendil-works/pi-ai"]) {
+		assert.equal(peers[name], want, name + " must be declared " + want + ", the measured floor");
+	}
+	// typebox is a peer because the host provides it, not because the paging API needs a version of it.
+	assert.equal(peers.typebox, "*", "typebox has no measured floor and stays permissive");
 });
 
 test("the floor is at or above the oldest host measured to provide the paging path", () => {
