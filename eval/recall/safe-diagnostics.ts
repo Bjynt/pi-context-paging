@@ -24,6 +24,8 @@ compaction-error unjoined-recovery-result artifact-error source-error max-user-p
 native-history-match native-history-unchanged native-projection-unchanged target-idle target-fresh private-tape-present settings-match
 checkpoint-history-match checkpoint-projection-match resident-configuration-match restoration-complete
 `.trim().split(/\s+/));
+/** The harness-owned diagnostic vocabulary, readable so its shape can be checked by tests and docs. */
+export const diagnosticCodes: ReadonlySet<string> = codes;
 /** Only harness-owned diagnostics may cross the host artifact boundary. */
 export function safeDiagnostic(value: unknown): string | null {
 	if (value === null) return null;
