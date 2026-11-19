@@ -1358,6 +1358,25 @@ test("a reported route that cannot be resolved aborts the provider call", async 
 	assert.ok(harness.notifications.some((item) => item.level === "error" && /context-window estimate is invalid/.test(item.message)));
 });
 
+// Both abort reports live inside the context hook, which a headless host invokes on every provider
+// request. Losing the report is acceptable; turning the abort into a rejected handler is not.
+test("an abort on a host with no notification surface still aborts the provider call", async () => {
+	const { harness, request } = routedFixture();
+	(harness.ctx as { ui?: unknown }).ui = undefined;
+	const unresolvable = await request({ version: 1, provider: "lab", id: "missing" });
+	assert.equal(harness.abortCalls(), 1, "an unresolvable route is still aborted");
+	assert.ok(Array.isArray(unresolvable?.messages), "the hook returns the request instead of rejecting");
+
+	const plain = createHarness({ globalSettings: { contextPaging: { tokenBudget: 128_000 } }, projectTrusted: false });
+	(plain.ctx as { ui?: unknown }).ui = undefined;
+	const messages = [user("PHYSICAL_ACTIVE")];
+	plain.setBranch(messages.map((message, index) => entry(`headless-${index}`, message)));
+	plain.ctx.model.contextWindow = 0;
+	const invalid = await emit(plain, "context", { messages }) as any;
+	assert.equal(plain.abortCalls(), 1, "an invalid window is still aborted");
+	assert.ok(Array.isArray(invalid?.messages), "and its report is skipped, not thrown");
+});
+
 test("a fresh extension has no prior frontier", async (t) => {
 	const commits = t.mock.method(ContextCutState.prototype, "commit");
 	const old = resetFixture();
