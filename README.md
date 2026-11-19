@@ -566,6 +566,11 @@ The extension does not yet let the model choose which history to remove.
 Requirements:
 
 - Node.js 22.19.0 or newer
+- A Node.js build compiled with TypeScript support, to run the suite (`node --test --experimental-strip-types`).
+  Some distribution builds report `process.features.typescript === false` and then fail on every `.ts` file with
+  `ERR_NO_TYPESCRIPT`; `npm test` stops with that reason (see `scripts/check-node-typescript.mjs`) instead of
+  reporting dozens of failing test files. Loading the extension inside pi is unaffected: the host transpiles `.ts`
+  extensions with its own jiti loader.
 - npm
 
 Run the checks that protect every change:

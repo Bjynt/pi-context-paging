@@ -10,6 +10,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "pretest": "node scripts/check-node-typescript.mjs",
     "test": "node --test --experimental-strip-types tests/*.test.ts",
     "bench": "node --experimental-strip-types bench/context-policy.bench.ts",
     "bench:caching": "node --experimental-strip-types bench/caching.bench.ts",

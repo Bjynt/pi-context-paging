@@ -140,6 +140,13 @@ function artifact() {
 }
 
 function tests() {
+	// A Node build compiled without TypeScript support throws ERR_NO_TYPESCRIPT for every .ts file, which arrives as
+	// a wall of failing test files sharing one internal cause. Name the build and stop.
+	if (!process.features.typescript) {
+		console.log(`HOST GATE: Node ${process.version} at ${process.execPath} has no TypeScript support, so the suite `+
+			"cannot run here (see scripts/check-node-typescript.mjs). Use a nodejs.org/nvm build for the host gate.");
+		return true;
+	}
 	// The same file set `npm test` runs, enumerated rather than globbed: execFileSync does not expand globs,
 	// and handing the runner a directory reports one opaque failing entry instead of the suite.
 	const files = readdirSync(join(repo, "tests")).filter((name) => name.endsWith(".test.ts")).sort().map((name) => join("tests", name));
