@@ -193,6 +193,26 @@ sync();
 if (!testsOnly && !artifactOnly) failed = typecheck() || failed;
 if (!installOnly && !typecheckOnly && !artifactOnly && !runtimeOnly) failed = tests() || failed;
 if (!installOnly && !typecheckOnly && !testsOnly) failed = artifact() || failed;
+// The suite is written against the newest host: `eval/recall` resolves models through that host's registry. On a host
+// at or below the compatibility floor it can fail for harness reasons while the extension itself is fine — which is
+// why the floor CI leg passes `--runtime-only`. Say so, or a contributor chases 39 phantom product bugs; measured:
+// a full `--host floor` run reports `39 fail` and `artifact OK` in the same pass.
+const suiteRan = !installOnly && !typecheckOnly && !artifactOnly && !runtimeOnly;
+if (failed && suiteRan) {
+	const compare = (left, right) => {
+		const parts = (value) => value.split(".").map((part) => Number.parseInt(part, 10));
+		const [a, b] = [parts(left), parts(right)];
+		for (let index = 0; index < 3; index += 1) {
+			if (a[index] !== b[index]) return (a[index] ?? 0) < (b[index] ?? 0) ? -1 : 1;
+		}
+		return 0;
+	};
+	const host = installedVersion();
+	if (/^\d+\.\d+\.\d+$/.test(host) && compare(host, COMPAT_FLOOR) <= 0) {
+		console.log(`HOST GATE: hosts at or below the floor ${COMPAT_FLOOR} can fail the suite on the eval/recall model registry, `
+			+ "not on the extension. The floor CI leg runs --runtime-only (typecheck + packed artifact + host API probe) for that reason.");
+	}
+}
 if (!keep) rmSync(workspace, { recursive: true, force: true });
 console.log(`HOST GATE ${failed ? "FAILED" : "OK"} on Pi ${installedVersion()} (${workspace})`);
 process.exit(failed ? 1 : 0);
