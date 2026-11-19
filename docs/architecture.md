@@ -100,6 +100,12 @@ For the default budget, the target is `80_000`. A `64_000` budget has an implici
 An explicit trusted-project target takes precedence over a global target. An inherited global target stays explicit with a lower project budget.
 
 Both token settings accept positive safe integers. Invalid values fall through to the next trusted source, then the default.
+`settings.ts` also inspects a parsed file, reporting three problems: a key under `contextPaging` that no setting
+reads, a known key whose value cannot be read, and a `contextPaging` value that is not an object. `index.ts` turns
+each problem into one report per extension instance (the host runs the extension factory per session), naming the
+key, the scope, the file, and — for an unusable value — the value it received, with the rewrite the user can paste.
+Reporting never changes resolution: an unusable value falls through exactly as above, so a quoted
+`"enabled": "false"` reports and then uses the default. Only a file that cannot be parsed at all turns paging off.
 Direct policy calls instead throw `INVALID_TOKEN_BUDGET` or `INVALID_TRIM_TARGET` for invalid values before eviction.
 The existing positive-finite model-window validation remains separate.
 Integral scaling and adaptive defaults use exact integer arithmetic near the safe-integer limit.
@@ -261,6 +267,8 @@ When normal paging resumes, its frozen notice returns unchanged. Stateful paging
 ## Lifecycle
 
 `index.ts` resolves global and trusted-project settings at session start.
+The same session start reports unread keys, unusable values, and a non-object `contextPaging` in the files it read —
+one report per distinct problem, and never for a file it did not read, so an untrusted project file is not named.
 The `/context-paging on|off|status|stats|rotate` command keeps an optional enabled override in memory.
 No arguments show the current state. Invalid arguments show usage without changing state.
 Paging, recovery tools, trim-target warnings, and automatic-compaction cancellation use the same effective enabled state.
