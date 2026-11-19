@@ -132,9 +132,10 @@ function activeResidentTools(pi: ExtensionAPI): ResidentToolDefinition[] {
 /**
  * The oldest Pi whose APIs the paging path can find. `sessionManager.buildSessionProjection()` arrived in
  * 0.87.0 — measured 0.86.1 has no such method, 0.87.0 and every later host tested do. Older hosts load the
- * extension and register all four tools, then throw on the first request that reads the session projection,
- * which aborts the provider call: the failure is invisible until the user is mid-conversation. Checked at
- * session start against the real host object, and kept in step with `COMPAT_FLOOR` in
+ * extension and register all four tools, and before this guard existed their first request that read the
+ * session projection threw and aborted the provider call, invisibly until the user was mid-conversation. The
+ * check below runs once at session start against the real host object, and is kept in step with
+ * `COMPAT_FLOOR` in
  * `scripts/check-host-compat.mjs` by tests/host-compat-contract.test.ts.
  */
 const MINIMUM_PI_VERSION = "0.87.0";

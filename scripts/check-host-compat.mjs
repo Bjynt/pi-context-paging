@@ -27,10 +27,13 @@ const HOST_PACKAGES = ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ag
 /**
  * Lowest published Pi whose APIs the request path actually finds, measured one version per run with the
  * artifact API probe (scripts/host-api-probe.ts): on 0.86.1 and every older host tested down to 0.74.0,
- * `sessionManager.buildSessionProjection()` is undefined, so `src/index.ts` throws on the first request that
- * reads the session projection — after registration succeeded and the tools appeared. `peerDependencies`
- * now declare the floor (`>=0.87.0`), so npm refuses an install below it, and `--host floor` lets CI enforce
- * the same boundary at runtime, where a peer check can be bypassed, instead of testing only latest.
+ * `sessionManager.buildSessionProjection()` is undefined. Until 2dfa0a9 that meant `src/index.ts` threw on the
+ * first request that read the session projection — after registration succeeded and the tools appeared. The
+ * extension now detects the missing API at session start and keeps paging off, so the floor is enforced in
+ * three places: `peerDependencies` declare it (`>=0.87.0`), so npm refuses an install below it; `session_start`
+ * turns paging off on a host that cannot provide it, for an installer that bypasses peer checks; and
+ * `--host floor` lets CI enforce the same boundary at runtime, where a peer check can be bypassed, instead of
+ * testing only latest.
  * README.md states the same number and tests/host-compat-contract.test.ts pins all three together.
  */
 const COMPAT_FLOOR = "0.87.0";
