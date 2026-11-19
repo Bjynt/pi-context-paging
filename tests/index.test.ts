@@ -673,7 +673,9 @@ test("fails closed when session settings cannot be parsed", async () => {
 		assert.deepEqual(await emit(harness, "session_before_compact", { reason: "threshold" }), { cancel: true });
 
 		await writeFile(settingsPath, "{");
-		await assert.rejects(() => emit(harness, "session_start", { reason: "reload" }), SyntaxError);
+		// Loading reports the unusable file and continues; what this test owns is the fail-closed outcome
+		// asserted below, not the crash that used to escape session_start.
+		await emit(harness, "session_start", { reason: "reload" });
 		assert.equal(await emit(harness, "context", { messages: [user("unchanged")] }), undefined);
 		assert.equal(await emit(harness, "session_before_compact", { reason: "threshold" }), undefined);
 	} finally {

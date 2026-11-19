@@ -8,21 +8,22 @@ import contextPagingExtension, { type ContextPagingSettingsSources } from "../sr
 
 type Handler = (event: any, ctx: any) => unknown;
 
-function statusHarness(settings?: ContextPagingSettingsSources) {
+function statusHarness(settings?: ContextPagingSettingsSources, options: { cwd?: string; projectTrusted?: boolean } = {}) {
 	const handlers = new Map<string, Handler>();
 	const commands = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
 	const statuses = new Map<string, string>();
 	const writes: Array<{ key: string; text: string | undefined }> = [];
+	const notifications: Array<{ message: string; level: string }> = [];
 	const ctx = {
 		hasUI: true,
-		cwd: tmpdir(),
-		isProjectTrusted: () => false,
+		cwd: options.cwd ?? tmpdir(),
+		isProjectTrusted: () => options.projectTrusted ?? false,
 		sessionManager: {
 			getBranch: () => [],
 			buildSessionProjection: () => ({ messages: [] }),
 		},
 		ui: {
-			notify() {},
+			notify(message: string, level: string) { notifications.push({ message, level }); },
 			setStatus(key: string, text: string | undefined) {
 				writes.push({ key, text });
 				if (text === undefined) statuses.delete(key);
@@ -38,7 +39,7 @@ function statusHarness(settings?: ContextPagingSettingsSources) {
 		registerTool() {},
 	} as any, settings);
 	return {
-		ctx, statuses, writes,
+		ctx, statuses, writes, notifications,
 		emit: async (name: string, event = {}) => await handlers.get(name)?.(event, ctx),
 		command: async (args: string) => {
 			const command = commands.get("context-paging");
@@ -125,8 +126,14 @@ test("publishes disabled fallback status when saved settings fail to load", asyn
 	await harness.emit("session_start");
 	await harness.command("on");
 	await writeFile(path, "{");
-	await assert.rejects(() => harness.emit("session_start", { reason: "reload" }), SyntaxError);
+	// Loading reports and continues: the parse error alone never names the file, and a rejecting
+	// session_start skipped the refresh. The requirement here is the fallback, not the crash.
+	await harness.emit("session_start", { reason: "reload" });
 	assert.equal(harness.statuses.get("context-paging"), "paging off");
+	const warnings = harness.notifications.filter(note => note.message.includes("are unusable"));
+	assert.equal(warnings.length, 1, "the reload reports the broken file once");
+	assert.ok(warnings[0]!.message.includes(`Global settings in ${path} are unusable`),
+		"the warning names the file the user has to fix");
 	assert.equal(await harness.emit("session_before_compact", { reason: "threshold" }), undefined);
 });
 
@@ -162,4 +169,79 @@ test("status queries and invalid arguments leave published status unchanged", as
 	for (const args of ["", "status", "on off", "invalid"]) await harness.command(args);
 	assert.equal(harness.writes.length, before);
 	assert.equal(harness.statuses.get("context-paging"), "paging off");
+});
+
+// A hand-edited settings file is the most likely way the settings path fails in the field, and a JSON parse
+// error names no file. Session start has to survive it and say which file is unusable.
+test("a malformed settings file leaves the session running and names the file", async (t) => {
+	const path = await settingsFile(t);
+	await writeFile(path, `{ "contextPaging": { "enabled": true }, }`);
+	const harness = statusHarness();
+	await harness.emit("session_start");
+	assert.equal(harness.statuses.get("context-paging"), "paging off", "an unusable config never turns the feature on");
+	assert.equal(harness.notifications.length, 1, "one report, not a stack of retries");
+	assert.equal(harness.notifications[0]!.level, "warning");
+	assert.match(harness.notifications[0]!.message, /Global settings in .*settings\.json are unusable/);
+	assert.match(harness.notifications[0]!.message, /context paging stays off for this session/);
+});
+
+test("a directory in the settings file's place is reported, not thrown", async (t) => {
+	const path = await settingsFile(t);
+	await rm(path, { force: true });
+	await mkdir(path, { recursive: true });
+	const harness = statusHarness();
+	await harness.emit("session_start");
+	assert.equal(harness.statuses.get("context-paging"), "paging off");
+	assert.equal(harness.notifications.length, 1);
+	assert.match(harness.notifications[0]!.message, /Global settings in .*settings\.json are unusable/);
+});
+
+test("a missing settings file is silent and a readable one is applied without comment", async (t) => {
+	const path = await settingsFile(t);
+	const absent = statusHarness();
+	await absent.emit("session_start");
+	assert.deepEqual(absent.notifications, [], "no file is the normal case, not a problem to report");
+	assert.equal(absent.statuses.get("context-paging"), "paging on", "the documented default is enabled");
+	await writeFile(path, JSON.stringify({ contextPaging: { enabled: true } }));
+	const harness = statusHarness();
+	await harness.emit("session_start");
+	assert.deepEqual(harness.notifications, [], "a readable file produces no warning");
+	assert.equal(harness.statuses.get("context-paging"), "paging on");
+});
+
+test("a malformed project file is named, the global settings survive, and an untrusted project is not read", async (t) => {
+	const path = await settingsFile(t);
+	await writeFile(path, JSON.stringify({ contextPaging: { enabled: true } }));
+	const cwd = await mkdtemp(join(tmpdir(), "context-paging-project-"));
+	t.after(() => rm(cwd, { recursive: true, force: true }));
+	await mkdir(join(cwd, ".pi"), { recursive: true });
+	await writeFile(join(cwd, ".pi", "settings.json"), "{ oops }");
+	const trusted = statusHarness(undefined, { cwd, projectTrusted: true });
+	await trusted.emit("session_start");
+	assert.equal(trusted.statuses.get("context-paging"), "paging off", "a broken project file never turns the feature on");
+	assert.equal(trusted.notifications.length, 1);
+	assert.match(trusted.notifications[0]!.message, /Project settings in .*\.pi\/settings\.json are unusable/);
+	const untrusted = statusHarness(undefined, { cwd, projectTrusted: false });
+	await untrusted.emit("session_start");
+	assert.deepEqual(untrusted.notifications, [], "an untrusted project's file is never opened");
+	assert.equal(untrusted.statuses.get("context-paging"), "paging on", "the global settings apply untouched");
+});
+
+test("a headless session survives an unusable settings file without touching the UI", async (t) => {
+	const path = await settingsFile(t);
+	await writeFile(path, "{");
+	const harness = statusHarness();
+	harness.ctx.hasUI = false;
+	await harness.emit("session_start");
+	assert.deepEqual(harness.notifications, [], "a session with no UI is sent no notification");
+	assert.deepEqual(harness.writes, [], "and no status is published");
+});
+
+test("a reporting failure cannot take down session start", async (t) => {
+	const path = await settingsFile(t);
+	await writeFile(path, "{");
+	const harness = statusHarness();
+	harness.ctx.ui.notify = () => { throw new Error("Notify is unavailable in this host"); };
+	await harness.emit("session_start");
+	assert.equal(harness.statuses.get("context-paging"), "paging off", "the status still publishes and the session continues");
 });

@@ -27,16 +27,32 @@ import {
 export { resolveContextPagingSettings } from "./settings.ts";
 export type { ContextPagingSettingsSources, ResolvedContextPagingSettings } from "./settings.ts";
 
-async function readJsonSettings(path: string): Promise<unknown> {
+function notifySafely(ctx: ExtensionContext, message: string): void {
+	if (!ctx.hasUI) return;
+	// The report is best effort: a host whose UI call fails must not turn a settings warning into a
+	// rejected session_start, which is the failure this loader exists to prevent.
+	try {
+		ctx.ui.notify(message, "warning");
+	} catch {}
+}
+
+function reportSettingsProblem(report: (message: string) => void, path: string, scope: string, error: unknown): void {
+	report(`${scope} settings in ${path} are unusable (${errorMessage(error)})`);
+}
+
+async function readJsonSettings(path: string, report: (message: string) => void, scope: string): Promise<unknown> {
 	try {
 		return JSON.parse(await readFile(path, "utf8"));
 	} catch (error) {
 		if ((error as { code?: unknown }).code === "ENOENT") return undefined;
-		throw error;
+		// A hand-edited settings file (a trailing comma, a comment, a directory in its place) must not take
+		// down session start. The parse error alone never names a file, so the report has to.
+		reportSettingsProblem(report, path, scope, error);
+		return undefined;
 	}
 }
 
-async function loadSettings(ctx: ExtensionContext): Promise<ContextPagingSettingsSources> {
+async function loadSettings(ctx: ExtensionContext, report: (message: string) => void): Promise<ContextPagingSettingsSources> {
 	const codingAgent = await import("@earendil-works/pi-coding-agent") as {
 		CONFIG_DIR_NAME?: string;
 		getAgentDir?: () => string;
@@ -45,9 +61,9 @@ async function loadSettings(ctx: ExtensionContext): Promise<ContextPagingSetting
 	const configDirectory = codingAgent.CONFIG_DIR_NAME ?? ".pi";
 	const agentDirectory = codingAgent.getAgentDir?.() ?? join(process.env.HOME ?? "", ".pi", "agent");
 	return {
-		globalSettings: await readJsonSettings(join(agentDirectory, "settings.json")),
+		globalSettings: await readJsonSettings(join(agentDirectory, "settings.json"), report, "Global"),
 		projectSettings: projectTrusted
-			? await readJsonSettings(join(ctx.cwd, configDirectory, "settings.json"))
+			? await readJsonSettings(join(ctx.cwd, configDirectory, "settings.json"), report, "Project")
 			: undefined,
 		projectTrusted,
 	};
@@ -271,8 +287,17 @@ export default function contextPagingExtension(
 		try {
 			if (!settingsSources) {
 				resolvedSettings = { ...resolvedSettings, enabled: false };
-				resolvedSettings = resolveContextPagingSettings(await loadSettings(ctx));
+				const problems: string[] = [];
+				resolvedSettings = resolveContextPagingSettings(await loadSettings(ctx, problem => problems.push(problem)));
+				if (problems.length) {
+					// Never enable an intrusive feature from a configuration the user did not successfully express.
+					resolvedSettings = { ...resolvedSettings, enabled: false };
+					notifySafely(ctx, `Context paging: ${problems.join("; ")}, and context paging stays off for this session.`);
+				}
 			}
+		} catch (error) {
+			// Settings loading is best effort: paging starts on defaults and reports, never blocks the session.
+			notifySafely(ctx, `Context paging settings are unavailable: ${errorMessage(error)}`);
 		} finally {
 			publishStatus(ctx);
 		}
