@@ -320,3 +320,21 @@ test("documented keys produce no report, in global and in trusted project settin
 	await project.emit("session_start");
 	assert.deepEqual(project.notifications, []);
 });
+
+// Session start re-reads settings on reload, resume, fork and extension reload. A key the user has not renamed yet
+// is the same fact every time, so it is reported once — the same contract as the trim-target warning.
+test("an unread key is reported once across settings reloads, and a new key is reported again", async (t) => {
+	const path = await settingsFile(t);
+	await writeFile(path, JSON.stringify({ contextPaging: { enabled: true, tokenbudget: 64_000 } }));
+	const harness = statusHarness();
+	await harness.emit("session_start");
+	await harness.emit("session_start", { reason: "reload" });
+	await harness.emit("session_start", { reason: "resume" });
+	const first = harness.notifications.filter(note => note.message.includes("tokenbudget"));
+	assert.equal(first.length, 1, `one report per distinct problem, got ${first.length}`);
+	await writeFile(path, JSON.stringify({ contextPaging: { enabled: true, maxTokens: 1 } }));
+	await harness.emit("session_start", { reason: "reload" });
+	const keys = harness.notifications.filter(note => note.message.includes("maxTokens") || note.message.includes("tokenbudget"));
+	assert.equal(keys.length, 2, "a different unread key is a different problem and is reported");
+	assert.equal(harness.statuses.get("context-paging"), "paging on");
+});

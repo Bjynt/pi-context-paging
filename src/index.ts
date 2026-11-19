@@ -176,6 +176,7 @@ export default function contextPagingExtension(
 	const routeReports = new RouteReports(pi);
 	let limitsKey: string | undefined;
 	const warnedSettingPairs = new Set<string>();
+	const reportedSettingNotices = new Set<string>();
 	const resetPagingState = () => {
 		usageTracker.clear();
 		cutState.reset();
@@ -183,6 +184,14 @@ export default function contextPagingExtension(
 		projectionWatermark = undefined;
 		latestInput = undefined;
 		pendingRotation = undefined;
+	};
+	const reportSettingsNotice = (ctx: ExtensionContext, message: string): void => {
+		// Settings are re-read on every session start (reload, resume, fork, extension reload), and a key the user
+		// has not renamed is the same fact each time: one report per distinct message, as with the trim-target
+		// warning, so a static configuration problem does not become recurring notification noise.
+		if (reportedSettingNotices.has(message)) return;
+		reportedSettingNotices.add(message);
+		notifySafely(ctx, message);
 	};
 	const warnAboutTrimTarget = (ctx: ExtensionContext) => {
 		const { tokenBudget, trimToTokens, trimToTokensExplicit } = resolvedSettings;
@@ -325,7 +334,7 @@ export default function contextPagingExtension(
 				));
 				// Unread keys are reported as they are found: paging stays on, because the settings that do exist
 				// were read successfully and the user needs to hear about the key, not lose the feature.
-				for (const message of notices) notifySafely(ctx, message);
+				for (const message of notices) reportSettingsNotice(ctx, message);
 				if (problems.length) {
 					// Never enable an intrusive feature from a configuration the user did not successfully express.
 					resolvedSettings = { ...resolvedSettings, enabled: false };
