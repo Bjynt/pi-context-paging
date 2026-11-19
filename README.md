@@ -86,6 +86,16 @@ pi install git:github.com/rochecompaan/pi-context-paging@v0.3.11
 
 After installation, restart Pi.
 
+### Supported Pi versions
+
+Requires **Pi 0.87.0 or newer**. `peerDependencies` is `"*"`, so `pi install` succeeds on older hosts and the
+four history tools even register; the failure is later and louder, because the paging path calls
+`sessionManager.buildSessionProjection()`, which no host before 0.87.0 provides. The `host-compat` CI job enforces
+the boundary: against the floor it runs the runtime contract (typecheck, the packed artifact, and the host APIs the
+extension calls) via `--runtime-only`, and against latest it runs the whole suite. The suite is not run on the floor
+because `eval/recall` resolves models through the newest host's registry — on 0.87.0 that rig reports 39 failures
+while `src/` typechecks and the artifact loads.
+
 ## Settings
 
 The extension is enabled by default.
@@ -591,10 +601,13 @@ Then check host compatibility, which is what the `host-compat` CI job runs and t
 cannot make locally: it installs the selected Pi in a temporary workspace and, against that host, typechecks the
 source, runs the suite, and loads the **packed artifact** through that host's own `pi` CLI. `peerDependencies`
 is `"*"`, so users load this extension in Pi versions the repository does not pin; a host that moves a type or
-rejects a tool schema fails here, not in the pinned dev dependency.
+rejects a tool schema fails here, not in the pinned dev dependency. The artifact stage does not stop at
+registration: it runs the host APIs the extension calls on a live path, so a missing session-manager method
+fails the gate instead of the user's first request. Two hosts are checked, the supported floor and latest.
 
 ```sh
 npm run check:host                     # the latest published Pi
+npm run check:host -- --host floor     # the oldest supported Pi (see COMPAT_FLOOR in the gate script)
 node scripts/check-host-compat.mjs --host 1.5.2 --dir /tmp/host-gate   # a chosen version, kept for re-runs
 node scripts/check-host-compat.mjs --dir /tmp/host-gate --typecheck-only    # one stage: --tests-only, --artifact-only
 ```

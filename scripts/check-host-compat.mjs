@@ -8,9 +8,11 @@
 //
 // Usage:
 //   node scripts/check-host-compat.mjs                        # latest published Pi
-//   ... --host <version|dist-tag>                             # a specific Pi (default: latest)
+//   ... --host <version|dist-tag|floor>                      # a specific Pi; "floor" = the oldest supported
+//   ... --print-floor                                        # print the supported floor and exit
 //   ... --dir <path>                                          # use/create this workspace (kept by default)
 //   ... --install-only | --typecheck-only | --tests-only | --artifact-only   # one stage in an existing workspace
+//   ... --runtime-only                                     # skip the suite: typecheck + artifact + API probe
 //   ... --keep                                                # keep a fresh temp workspace
 //
 // The install stage needs network access. The exit code is 2 for a gate/setup problem and 1 when the
@@ -22,6 +24,15 @@ import { join } from "node:path";
 
 const repo = join(import.meta.dirname, "..");
 const HOST_PACKAGES = ["@earendil-works/pi-coding-agent", "@earendil-works/pi-agent-core", "@earendil-works/pi-ai"];
+/**
+ * Lowest published Pi whose APIs the request path actually finds, measured one version per run with the
+ * artifact API probe (scripts/host-api-probe.ts): on 0.86.1 and every older host tested down to 0.74.0,
+ * `sessionManager.buildSessionProjection()` is undefined, so `src/index.ts` throws on the first request that
+ * reads the session projection — after registration succeeded and the tools appeared. `peerDependencies` is
+ * "*", so npm installs there anyway; `--host floor` lets CI enforce this boundary instead of only latest.
+ * README.md states the same number and tests/host-compat-contract.test.ts pins all three together.
+ */
+const COMPAT_FLOOR = "0.87.0";
 const args = process.argv.slice(2);
 
 function takeValue(name, fallback) {
@@ -38,13 +49,23 @@ function takeFlag(name) {
 	return true;
 }
 
-const requestedHost = takeValue("host", "latest");
+const hostArg = takeValue("host", "latest");
+const requestedHost = hostArg === "floor" ? COMPAT_FLOOR : hostArg;
 const dirArg = takeValue("dir", undefined);
 const installOnly = takeFlag("install-only");
 const typecheckOnly = takeFlag("typecheck-only");
 const testsOnly = takeFlag("tests-only");
 const artifactOnly = takeFlag("artifact-only");
+// Outside the tested-host range the suite is not the contract: the recall-eval rig resolves models through
+// the newest host's registry, so on 0.87.0 it reports 39 failures while `src/` typechecks, the packed
+// artifact loads, and every host API the extension calls exists. `--runtime-only` runs exactly the stages
+// that define "this host can run the extension": typecheck, packed artifact, host API probe.
+const runtimeOnly = takeFlag("runtime-only");
 const keep = takeFlag("keep") || dirArg !== undefined;
+if (takeFlag("print-floor")) {
+	console.log(COMPAT_FLOOR);
+	process.exit(0);
+}
 if (args.length > 0) {
 	console.log(`HOST GATE: unexpected argument ${args[0]}\n${"usage: node scripts/check-host-compat.mjs [--host <v>] [--dir <path>] [--install-only|--typecheck-only|--tests-only|--artifact-only] [--keep]"}`);
 	process.exit(2);
@@ -98,7 +119,8 @@ function sync() {
 	// packed file list, so a workspace that omits README.md/LICENSE/docs packs an unfaithful artifact and the
 	// artifact stage fails for the wrong reason.
 	const manifest = JSON.parse(readFileSync(join(repo, "package.json"), "utf8"));
-	for (const entry of ["src", "tests", "eval", "scripts", "bench", "docs", ...(manifest.files ?? [])]) {
+	// .github is part of the surface the suite reads: tests/host-compat-contract.test.ts pins the CI host matrix.
+	for (const entry of ["src", "tests", "eval", "scripts", "bench", "docs", ".github", ...(manifest.files ?? [])]) {
 		const from = join(repo, entry);
 		const to = join(workspace, entry);
 		// Prune before copying. A staged `--dir` run reuses a workspace, and additive copying would leave a
@@ -169,7 +191,7 @@ let failed = false;
 if (!testsOnly && !typecheckOnly && !artifactOnly) install();
 sync();
 if (!testsOnly && !artifactOnly) failed = typecheck() || failed;
-if (!installOnly && !typecheckOnly && !artifactOnly) failed = tests() || failed;
+if (!installOnly && !typecheckOnly && !artifactOnly && !runtimeOnly) failed = tests() || failed;
 if (!installOnly && !typecheckOnly && !testsOnly) failed = artifact() || failed;
 if (!keep) rmSync(workspace, { recursive: true, force: true });
 console.log(`HOST GATE ${failed ? "FAILED" : "OK"} on Pi ${installedVersion()} (${workspace})`);
