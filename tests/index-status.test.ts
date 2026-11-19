@@ -8,7 +8,7 @@ import contextPagingExtension, { type ContextPagingSettingsSources } from "../sr
 
 type Handler = (event: any, ctx: any) => unknown;
 
-function statusHarness(settings?: ContextPagingSettingsSources, options: { cwd?: string; projectTrusted?: boolean } = {}) {
+function statusHarness(settings?: ContextPagingSettingsSources, options: { cwd?: string; projectTrusted?: boolean; sessionProjection?: boolean } = {}) {
 	const handlers = new Map<string, Handler>();
 	const commands = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
 	const statuses = new Map<string, string>();
@@ -20,7 +20,8 @@ function statusHarness(settings?: ContextPagingSettingsSources, options: { cwd?:
 		isProjectTrusted: () => options.projectTrusted ?? false,
 		sessionManager: {
 			getBranch: () => [],
-			buildSessionProjection: () => ({ messages: [] }),
+			// sessionProjection: false reproduces a Pi older than 0.87.0, which has no such method at all.
+			...(options.sessionProjection === false ? {} : { buildSessionProjection: () => ({ messages: [] }) }),
 		},
 		ui: {
 			notify(message: string, level: string) { notifications.push({ message, level }); },
@@ -374,4 +375,27 @@ test("a boolean enabled and whole-number tokens produce no report", async (t) =>
 	await harness.emit("session_start");
 	assert.deepEqual(harness.notifications, [], "a valid file is never commented on");
 	assert.equal(harness.statuses.get("context-paging"), "paging off", "false is false");
+});
+
+test("a host without the session-projection API keeps paging off and names what it needs", async () => {
+	// The user-visible failure this removes: on a pre-0.87.0 host the four tools registered normally and the first
+	// provider request died in persistentSessionMessages. Paging must now be off, explained, and the session survives.
+	const harness = statusHarness(undefined, { sessionProjection: false });
+	await harness.emit("session_start");
+	const notes = harness.notifications.filter((note) => note.message.includes("buildSessionProjection"));
+	assert.equal(notes.length, 1, "one report per session, got " + JSON.stringify(notes.map((note) => note.message)));
+	assert.match(notes[0].message, /0\.87\.0/, "the report names the Pi version the extension requires");
+	assert.match(notes[0].message, /stays off/, "the report says what happens to paging");
+	assert.equal(harness.statuses.get("context-paging"), "paging off");
+});
+
+test("a host that provides the session-projection API gets no capability report", async () => {
+	const harness = statusHarness();
+	await harness.emit("session_start");
+	assert.deepEqual(
+		harness.notifications.filter((note) => note.message.includes("buildSessionProjection")),
+		[],
+		"a capable host is never lectured about capabilities",
+	);
+	assert.notEqual(harness.statuses.get("context-paging"), "paging off");
 });

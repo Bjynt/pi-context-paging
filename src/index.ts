@@ -129,6 +129,30 @@ function activeResidentTools(pi: ExtensionAPI): ResidentToolDefinition[] {
 		.map(({ name, description, parameters }) => ({ name, description, parameters }));
 }
 
+/**
+ * The oldest Pi whose APIs the paging path can find. `sessionManager.buildSessionProjection()` arrived in
+ * 0.87.0 — measured 0.86.1 has no such method, 0.87.0 and every later host tested do. Older hosts load the
+ * extension and register all four tools, then throw on the first request that reads the session projection,
+ * which aborts the provider call: the failure is invisible until the user is mid-conversation. Checked at
+ * session start against the real host object, and kept in step with `COMPAT_FLOOR` in
+ * `scripts/check-host-compat.mjs` by tests/host-compat-contract.test.ts.
+ */
+const MINIMUM_PI_VERSION = "0.87.0";
+
+/**
+ * Probed by calling the API itself. The recall replay rig records host interactions by path and arguments and
+ * replays them in order, so a property read of `buildSessionProjection` is an interaction no recording ever
+ * made; the call is the boundary the rig already knows (`eval/recall/paging-replay-input.ts:61`).
+ */
+function hostSupportsSessionProjection(ctx: ExtensionContext): boolean {
+	try {
+		ctx.sessionManager.buildSessionProjection();
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function persistentSessionMessages(ctx: ExtensionContext): AgentMessage[] {
 	return ctx.sessionManager.buildSessionProjection().messages;
 }
@@ -184,6 +208,9 @@ export default function contextPagingExtension(
 		? resolveContextPagingSettings(settingsSources)
 		: resolveContextPagingSettings({ globalSettings: { contextPaging: { enabled: false } }, projectTrusted: false });
 	let sessionEnabled: boolean | undefined;
+	// Set when the host cannot provide the session-projection API; the paging path then stays
+	// untouched for the session, so the capability gap is reported once, not as a TypeError per refresh.
+	let hostPagingUnsupported = false;
 	const isEnabled = () => sessionEnabled ?? resolvedSettings.enabled;
 	const publishStatus = (ctx: ExtensionContext) => {
 		if (ctx.hasUI) ctx.ui.setStatus("context-paging", isEnabled() ? "paging on" : "paging off");
@@ -269,6 +296,10 @@ export default function contextPagingExtension(
 		return { allItems, navigator };
 	};
 	const refreshSafely = (ctx: ExtensionContext, restoring = false) => {
+		// A disabled feature does not reach for host APIs it cannot have: on a pre-0.87.0 host this path is a
+		// TypeError, and stacking "navigation is unavailable" on the named capability report tells the user twice
+		// in the wrong words. Status is published by the caller.
+		if (hostPagingUnsupported) return;
 		try {
 			refresh(ctx, restoring);
 		} catch (error) {
@@ -363,6 +394,14 @@ export default function contextPagingExtension(
 					resolvedSettings = { ...resolvedSettings, enabled: false };
 					notifySafely(ctx, `Context paging: ${problems.join("; ")}, and context paging stays off for this session.`);
 				}
+			}
+
+			// A host that predates the session-projection API cannot page history at all. Turn the feature off for
+			// the session and name the requirement, instead of letting the first provider call die with a TypeError.
+			hostPagingUnsupported = !hostSupportsSessionProjection(ctx);
+			if (hostPagingUnsupported) {
+				resolvedSettings = { ...resolvedSettings, enabled: false };
+				notifySafely(ctx, `Context paging: this Pi has no sessionManager.buildSessionProjection(), so history paging requires Pi ${MINIMUM_PI_VERSION} or newer, and context paging stays off for this session.`);
 			}
 		} catch (error) {
 			// Settings loading is best effort: paging starts on defaults and reports, never blocks the session.

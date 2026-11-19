@@ -42,6 +42,15 @@ test("the gate resolves --host floor to a publishable version", () => {
 	assert.match(floor, /^\d+\.\d+\.\d+$/, `floor must be an exact published version, got ${JSON.stringify(floor)}`);
 });
 
+test("the extension's own capability floor is the version the gate enforces", () => {
+	// src/index.ts refuses to page on a host without the session-projection API and quotes this version to the
+	// user. If the gate's floor moves and the runtime message does not, users are told the wrong thing.
+	const source = read("src/index.ts");
+	const declared = source.match(/const MINIMUM_PI_VERSION = "(\d+\.\d+\.\d+)"/);
+	assert.ok(declared, "src/index.ts must declare MINIMUM_PI_VERSION for the capability guard");
+	assert.equal(declared[1], printedFloor(), "the runtime capability floor and the gate floor must agree");
+});
+
 test("the floor is at or above the oldest host measured to provide the paging path", () => {
 	// 0.87.0 is the lowest host on which the artifact API probe passes. Lowering the gate's floor below it would
 	// re-admit hosts where the extension registers and then throws on the request path.
