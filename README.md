@@ -614,10 +614,16 @@ step, and it is deliberately not in the hook, so publishing offline is possible 
 Then check host compatibility, which is what the `host-compat` CI job runs and the one check the list above
 cannot make locally: it installs the selected Pi in a temporary workspace and, against that host, typechecks the
 source, runs the suite, and loads the **packed artifact** through that host's own `pi` CLI. `peerDependencies`
-is `"*"`, so users load this extension in Pi versions the repository does not pin; a host that moves a type or
-rejects a tool schema fails here, not in the pinned dev dependency. The artifact stage does not stop at
+declares the floor named in "Supported Pi versions", so users load this extension on every Pi above that floor
+that the repository does not pin; a host that moves a type or rejects a tool schema fails here, not in the
+pinned dev dependency. The artifact stage does not stop at
 registration: it runs the host APIs the extension calls on a live path, so a missing session-manager method
 fails the gate instead of the user's first request. Two hosts are checked, the supported floor and latest.
+If the artifact stage dies while the host is loading the extension with a write error such as
+`Unknown system error -122`, the temporary filesystem is the problem, not the code: the host transpiles
+extensions when it loads them and the gate installs a whole Pi release into the workspace. Seen on a temp
+directory at 80 % full and gone once space was freed; point `--dir` at a filesystem with room, or free space
+and re-run.
 
 ```sh
 npm run check:host                     # the latest published Pi

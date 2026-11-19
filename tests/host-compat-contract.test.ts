@@ -101,6 +101,13 @@ test("the README promises exactly the floor the gate enforces", () => {
 		versions.includes(floor),
 		`README must name the floor the gate enforces (${floor}); the section names ${versions.join(", ") || "no version"}`,
 	);
+	// The permissive range is a fact about the manifest, and the README stated it in a second place (the host-gate
+	// section) where the section-anchored check above could not see it. One sentence said peers were "*" long after
+	// the manifest declared the floor, so a reader debugging an install was pointed at the extension, not the range.
+	assert.ok(
+		!/peerDependencies[\s\S]{0,140}?is\s+`"\*"`/.test(readme),
+		"the README must not claim the peer range is permissive while the manifest declares a floor",
+	);
 	const lower = versions.filter((version) => compareSemver(version, floor) < 0);
 	assert.deepEqual(
 		lower,
