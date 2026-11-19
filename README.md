@@ -259,15 +259,27 @@ This can show matching tool output instead of the start of the assistant respons
 An ellipsis (`…`) marks a clipped end.
 Browse previews and empty-query search previews still start at the beginning.
 
+The `query` is required text, at most 200 characters.
 The `tools` filter matches any listed tool name.
 For example, `tools: ["bash", "codemode"]` matches a turn that used either tool, or both.
 An omitted or empty list adds no tool restriction.
 The text query and other filters still apply.
 The `files` filter requires every listed file.
+`failed` filters by turn outcome: `true` keeps turns that failed, `false` keeps the rest, and omitting it adds no failure restriction.
 
 With `load: true`, `search_history` returns all requested `references` and loads at most three `items`.
 The `unloadedHistoryIds` array lists the other matches in search order.
 Use `load_history` to load those IDs, at most three per call.
+
+### Browsing history
+
+`browse_history` needs `direction`: `backward`, `forward`, or `around`.
+Its anchor is `historyId` or `sequence` (0 to 1,000,000), never both, and both name a reference an earlier reply returned.
+`backward` and `forward` start one step past the anchor. With no anchor, `backward` starts at the newest item and `forward` at the oldest.
+`around` centres the reply on the anchor and includes it. With no anchor, the newest item is the centre.
+`count` is how many references to return, 1 to 10, default 5.
+`stride` is the step between them, 1 to 10, default 1, so `stride: 4` samples every fourth item.
+`load_history` takes 1 to 3 `historyIds`, each at most 128 characters.
 
 ### Reply limits and large items
 
