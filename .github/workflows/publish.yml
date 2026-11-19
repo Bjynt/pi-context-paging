@@ -42,6 +42,13 @@ jobs:
       - name: Check package
         run: npm run check
 
+      # The checks above run against the dev host pinned in devDependencies, and `check:package` loads the packed
+      # artifact through that same host's CLI. peerDependencies are "*", so users load this release on Pi versions
+      # the repository does not pin; a tag pushed from a release branch gets no host-compat coverage from CI.
+      # Verify the release against the latest published Pi here, so publishing cannot depend on that inference.
+      - name: Check against the latest published Pi
+        run: node scripts/check-host-compat.mjs
+
       - name: Publish to npm when absent
         run: |
           set -euo pipefail

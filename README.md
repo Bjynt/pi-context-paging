@@ -590,9 +590,9 @@ node scripts/check-host-compat.mjs --dir /tmp/host-gate --typecheck-only    # on
 ```
 
 CI runs both groups, as separate jobs: `verify` runs `npm run check` (the three commands above), and `host-compat`
-runs `node scripts/check-host-compat.mjs` against the latest published Pi.
-Run `npm run check:host` before raising the supported Pi range, and before publishing from a tag that is not on
-`main` (a tag on `main` inherits the check from that branch's run).
+runs `node scripts/check-host-compat.mjs` against the latest published Pi. The publish workflow runs the same host
+check before it publishes, so a tagged release is verified against a current Pi on its own, not by inference from
+the branch it was tagged from. Run `npm run check:host` yourself before raising the supported Pi range.
 
 Run the performance benchmark:
 
