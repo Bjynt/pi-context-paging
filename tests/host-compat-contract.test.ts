@@ -154,6 +154,25 @@ test("CI enforces the floor as a runtime contract and latest as the full suite",
 	);
 });
 
+test("publishing cannot report success when the registry's copy of the version is other content", () => {
+	// Measured on the live registry: @rochecompaan/pi-context-paging@0.3.11 is published from 4409e5e, and this repo
+	// carries version 0.3.11 65 commits later. The publish step read that state as "already published", exited 0, and
+	// the next step created a GitHub release whose npm artifact does not exist -- a green release job for content npm
+	// never saw. npm records gitHead for a publish from a git checkout, so the registry can say which commit a version
+	// number was made from (measured: 0.3.11's gitHead equals `git rev-list -n1 v0.3.11`). A re-run of content that is
+	// genuinely out must stay a no-op; a collision must fail.
+	const publish = read(".github/workflows/publish.yml");
+	const step = publish.slice(publish.indexOf("Publish to npm"));
+	assert.ok(step.length > 0, "publish.yml must keep the npm publish step");
+	assert.match(
+		step,
+		/npm view "\$package_name@\$package_version" gitHead/,
+		"the step must ask the registry which commit the published version came from",
+	);
+	assert.match(step, /TAG_COMMIT/, "the step must compare that commit against the tag's own commit");
+	assert.match(step, /exit 1/, "content the registry does not hold under this number must fail the job, not print and continue");
+});
+
 test("publishing checks the advertised floor before it publishes", () => {
 	// A tag needs no green CI to exist, and this workflow's own comment says a tag from a release branch gets no
 	// host-compat coverage from CI -- which is why the job runs the gate at all. It ran the gate against the latest
