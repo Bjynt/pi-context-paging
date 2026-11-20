@@ -147,3 +147,27 @@ test("CI enforces the floor as a runtime contract and latest as the full suite",
 		"the host-compat step must pass both the matrix host and its stage flags to the gate",
 	);
 });
+
+test("publishing checks the advertised floor before it publishes", () => {
+	// A tag needs no green CI to exist, and this workflow's own comment says a tag from a release branch gets no
+	// host-compat coverage from CI -- which is why the job runs the gate at all. It ran the gate against the latest
+	// published Pi only, so a release could reach the registry while the extension could not load on the version
+	// `peerDependencies` advertises: users on the floor install a release that promises to support them and get
+	// paging turned off for the whole session. The floor leg is the one that protects that promise.
+	const publish = read(".github/workflows/publish.yml");
+	const gate = publish.indexOf("node scripts/check-host-compat.mjs");
+	assert.ok(gate !== -1, "the publish workflow must run the host-compat gate: CI does not cover a tag");
+	const floor = publish.indexOf("--host floor");
+	assert.ok(floor !== -1, "the publish workflow must check the floor the manifest advertises, not only the latest Pi");
+	// Pinned through the `--host floor` alias, not a version literal, so raising COMPAT_FLOOR keeps working here.
+	assert.match(
+		publish.slice(gate, floor + 60),
+		/check-host-compat\.mjs --host floor --runtime-only/,
+		"the floor leg must run the runtime contract stages: typecheck, packed artifact, host API probe",
+	);
+	const release = publish.indexOf("npm publish");
+	assert.ok(
+		release !== -1 && floor < release,
+		"the floor check must run before npm publish, not after the release is out",
+	);
+});

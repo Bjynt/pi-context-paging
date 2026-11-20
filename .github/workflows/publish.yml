@@ -43,9 +43,13 @@ jobs:
         run: npm run check
 
       # The checks above run against the dev host pinned in devDependencies, and `check:package` loads the packed
-      # artifact through that same host's CLI. The peer floor admits every Pi from 0.87.0 up, so users load this release on Pi versions
-      # the repository does not pin; a tag pushed from a release branch gets no host-compat coverage from CI.
-      # Verify the release against the latest published Pi here, so publishing cannot depend on that inference.
+      # artifact through that same host's CLI. The peer floor admits every Pi from COMPAT_FLOOR up, so users load this
+      # release on Pi versions the repository does not pin; a tag pushed from a release branch gets no host-compat
+      # coverage from CI, and a tag needs no green CI to be pushed. Verify the release against both ends of the
+      # advertised range here: the floor `peerDependencies` promises, and the latest published Pi.
+      - name: Check against the oldest supported Pi (the peer floor)
+        run: node scripts/check-host-compat.mjs --host floor --runtime-only
+
       - name: Check against the latest published Pi
         run: node scripts/check-host-compat.mjs
 
