@@ -63,6 +63,12 @@ test("publishing runs the checks from every path, not only from CI", () => {
 	assert.ok(scripts.prepublishOnly, "package.json must gate the publish path itself");
 	assert.match(scripts.prepublishOnly, /npm run check\b/, "the hook must run the same chain CI runs");
 	assert.ok(!scripts.prepublishOnly.includes("check:host"), "the hook cannot install published hosts: offline publishing must stay possible");
+	// The suite's own precondition chain. check-node-typescript.mjs has run as `pretest` since the strip-types build
+	// trap; check-test-environment.mjs joined it after 15 output-location tests failed on a full temp filesystem with a
+	// report that blamed output-path validation. Dropping a hook from `pretest` removes the named cause, not the failure.
+	assert.ok(scripts.pretest, "package.json must gate the suite with its preconditions");
+	assert.match(scripts.pretest, /check-node-typescript\.mjs/, "pretest must keep the Node and strip-types precondition");
+	assert.match(scripts.pretest, /check-test-environment\.mjs/, "pretest must keep the temporary-filesystem precondition");
 });
 
 test("the manifest refuses to install on a host below the floor", () => {
