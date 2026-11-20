@@ -27,6 +27,14 @@ jobs:
 
       - name: Check package
         run: npm run check
+
+      # Every gate above reads the source. The registry's copy of the version this repository advertises is a
+      # different build: the README pins an install command naming that version, and if the published tarball predates
+      # the peer floor and the capability guard, readers get a build that installs on hosts below the floor and dies on
+      # the first request that reads the session projection. This gate reads the registry; it cannot live in the
+      # offline publish hook (pinned in tests/host-compat-contract.test.ts).
+      - name: Check the published artifact carries this contract
+        run: node scripts/check-published-artifact.mjs
   # The manifest declares a Pi floor (">=0.87.0" on the host peers), so users run this package on every Pi
   # This job runs the same gates against the two hosts that define the supported range: the measured floor
   # (COMPAT_FLOOR in scripts/check-host-compat.mjs) and the latest published host.

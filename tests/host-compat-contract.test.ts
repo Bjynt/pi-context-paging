@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
@@ -152,6 +153,62 @@ test("CI enforces the floor as a runtime contract and latest as the full suite",
 		/check-host-compat\.mjs --host \$\{\{ matrix\.pi \}\} \$\{\{ matrix\.stages \}\}/,
 		"the host-compat step must pass both the matrix host and its stage flags to the gate",
 	);
+});
+
+test("the published-artifact gate compares the registry's build against the contract", () => {
+	// A token search in the gate script proves nothing: its header names the tokens it greps for, so "the script
+	// mentions MINIMUM_PI_VERSION" is satisfied by prose -- measured, neutering the pattern left such a pin green.
+	// So run the gate. PUBLISHED_ARTIFACT_DIR is its seam for an extracted tarball root, which keeps this offline and
+	// deterministic: the real registry copy of 0.3.11 (peers "*", no guard) is exactly fixture A.
+	const workspace = mkdtempSync(join(tmpdir(), "published-contract-"));
+	try {
+		const manifest = JSON.parse(read("package.json"));
+		const write = (dir: string, peers: Record<string, string>, source: string) => {
+			mkdirSync(join(dir, "src"), { recursive: true });
+			writeFileSync(
+				join(dir, "package.json"),
+				JSON.stringify({ name: manifest.name, version: manifest.version, peerDependencies: peers }),
+			);
+			writeFileSync(join(dir, "src", "index.ts"), source);
+		};
+		const run = (dir: string) =>
+			spawnSync(process.execPath, [join(repo, "scripts", "check-published-artifact.mjs")], {
+				cwd: repo,
+				env: { ...process.env, PUBLISHED_ARTIFACT_DIR: dir },
+				encoding: "utf8",
+			});
+
+		// A: the build on npm today -- permissive peers and no capability guard.
+		const stale = join(workspace, "stale");
+		write(stale, { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-ai": "*", typebox: "*" }, "export default function paging() {}");
+		const staleRun = run(stale);
+		assert.equal(staleRun.status, 1, "a published build with permissive peers and no guard must fail the gate");
+		const staleReport = staleRun.stdout + staleRun.stderr;
+		// Semantic, not phrasing: the report has to name the range the repository contracts (read from the manifest, so a
+		// floor bump keeps working) and the range the registry serves, plus the missing guard.
+		const wanted = manifest.peerDependencies["@earendil-works/pi-coding-agent"] as string;
+		assert.ok(staleReport.includes(wanted), `the report must name the contracted peer range ${wanted}, got: ${staleReport}`);
+		assert.match(staleReport, /\"\*\"/, "the report must show the range the registry serves for the peer");
+		assert.match(staleReport, /guard/i, "the report must name the missing capability guard");
+		for (const peer of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-agent-core", "@earendil-works/pi-ai"]) {
+			assert.ok(staleReport.includes(peer), `the report must name every host peer, missing ${peer}`);
+		}
+
+		// B: a build that carries the contract -- same peer ranges, guard present.
+		const current = join(workspace, "current");
+		write(current, manifest.peerDependencies, "const MINIMUM_PI_VERSION = \"0.87.0\";\nexport default function paging() {}");
+		const currentRun = run(current);
+		assert.equal(currentRun.status, 0, `a published build carrying the contract must pass: ${currentRun.stdout}${currentRun.stderr}`);
+
+		// The gate needs a registry read in the real path, so it belongs to CI and not to the offline publish hook.
+		assert.match(
+			read(".github/workflows/ci.yml"),
+			/check-published-artifact\.mjs/,
+			"the gate must run in CI: it reads the registry, so it cannot live in the offline publish hook",
+		);
+	} finally {
+		rmSync(workspace, { recursive: true, force: true });
+	}
 });
 
 test("publishing cannot report success when the registry's copy of the version is other content", () => {
