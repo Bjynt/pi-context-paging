@@ -685,9 +685,12 @@ From a source checkout, run the offline preview after `npm ci`:
 
 ```sh
 npm run eval:recall -- --dry-run
+npm run eval:recall -- --help
 ```
 
-The preview sends no provider requests.
+The preview sends no provider requests. `--help` lists every accepted flag with its default and rule; the list is
+generated from the parser's own flag table, so it cannot drift from the flags the parser accepts. An argument mistake
+names the flag that caused it.
 Live pilots and batches each require separate user approval.
 Read the evaluation guide for preparation, limits, and result interpretation.
 

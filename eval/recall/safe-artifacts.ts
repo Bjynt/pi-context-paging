@@ -30,10 +30,22 @@ const payloadDiagnosticCodes = new Set(["ambiguous-origin", "invalid-content", "
 	"invalid-model", "invalid-instructions", "invalid-input", "no-observation", "invalid-usage", "invalid-input-details",
 	"invalid-input_tokens", "invalid-output_tokens", "invalid-cached_tokens", "invalid-cache_write_tokens"]);
 
-export function safeError(error: unknown): { name: string; code?: string } {
+/** A CLI flag name is token-shaped and in-repo-authored: safe to relay. */
+const cliFlagPattern = /^--[a-z][a-z0-9-]*$/;
+// A short, single-line, printable reason authored by in-repo argument parsing. It is relayed (not the Error `message`,
+// which can carry arbitrary runtime text) so a developer sees which flag failed and why. Bounded and control-char-free
+// so a model payload can never smuggle a fake line into the console relay.
+const cliReasonPattern = /^[^\p{Cn}\n\r\t]{1,200}$/u;
+
+export function safeError(error: unknown): { name: string; code?: string; flag?: string; reason?: string } {
 	const record = error && typeof error === "object" ? error as Record<string, unknown> : {};
 	const name = typeof record.name === "string" && errorNames.has(record.name) ? record.name : "Error";
-	return { name, ...(typeof record.code === "string" && safeErrorCodes.has(record.code) ? { code: record.code } : {}) };
+	const code = typeof record.code === "string" && safeErrorCodes.has(record.code) ? { code: record.code } : {};
+	// Relay the offending flag and its reason when both are well-shaped. This names the failing flag for the developer
+	// without relaying arbitrary error text (what Error.message can carry). See ./cli-options.ts.
+	const flag = typeof record.flag === "string" && cliFlagPattern.test(record.flag) ? { flag: record.flag } : {};
+	const reason = typeof record.reason === "string" && cliReasonPattern.test(record.reason) ? { reason: record.reason } : {};
+	return { name, ...code, ...flag, ...reason };
 }
 
 /** Copy structured artifacts, never credential resolution objects or raw errors. */
