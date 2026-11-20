@@ -236,10 +236,31 @@ test("the published-artifact gate compares the registry's build against the cont
 		assert.equal(noneRun.status, 1, "a README with no disclosure anywhere must fail the gate");
 		assert.ok(noneReport.includes("Install section") && noneReport.includes(`"Changes in ${manifest.version}"`), `the report must name both places, got: ${noneReport}`);
 
+		// The post-release flow, which is the case this gate used to get wrong. Once a release carries the contract, the
+		// Install disclosure is removed -- and the note inside the older release's section stays, because "the published
+		// 0.3.11 predates the floor" is a true record of 0.3.11 forever. The gate used to fire on that marker and tell the
+		// maintainer to delete a true historical note, with the publish remedy attached.
+		const historic = join(workspace, "README-historic.md");
+		const currentSectionAt = readme.indexOf(`## Changes in ${manifest.version}`);
+		const olderAt = readme.indexOf("## Changes in 0.3.10");
+		assert.ok(olderAt > 0, "the README must keep prior releases for this case");
+		const withoutMarkers = readme.slice(0, currentSectionAt).replace(marker, "") + readme.slice(currentSectionAt).replace(marker, "");
+		const olderHeading = "## Changes in 0.3.10\n";
+		writeFileSync(historic, withoutMarkers.slice(0, olderAt + olderHeading.length) + "\n" + marker + "\n" + withoutMarkers.slice(olderAt + olderHeading.length));
+		const historicRun = run(current, historic);
+		assert.equal(historicRun.status, 0, `a released build with the disclosure removed and the historical note kept must pass: ${historicRun.stdout}${historicRun.stderr}`);
+		const historicStale = run(stale, historic);
+		assert.equal(historicStale.status, 1, "the same README against a stale published build must fail");
+		const historicStaleReport = historicStale.stdout + historicStale.stderr;
+		assert.ok(historicStaleReport.includes("[contract]"), "the missing contract must be reported as a contract problem");
+		assert.ok(historicStaleReport.includes("[docs]"), "the missing disclosure must be reported as a documentation problem");
+
 		writeFileSync(join(workspace, "README-current.md"), readme);
 		const good = run(current, join(workspace, "README-current.md"));
 		assert.equal(good.status, 1, "a disclosure left in place after the published build became current must fail the gate");
-		assert.ok((good.stdout + good.stderr).includes(marker), "the report must say the disclosure is no longer true");
+		const goodReport = good.stdout + good.stderr;
+		assert.ok(goodReport.includes(marker), "the report must say the disclosure is no longer true");
+		assert.ok(!goodReport.includes("[contract]"), "a current published build has no contract problem, so the report must not claim one");
 		const clean = run(current, noneReadme);
 		assert.equal(clean.status, 0, `a current published build with no disclosure must pass: ${clean.stdout}${clean.stderr}`);
 

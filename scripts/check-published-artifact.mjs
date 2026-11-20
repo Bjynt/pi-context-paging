@@ -77,22 +77,28 @@ if (fixture) {
 
 try {
 	const publishedManifest = JSON.parse(readFileSync(join(published.dir, "package.json"), "utf8"));
-	const problems = [];
+	// Two kinds of problem, kept apart because they have different remedies. [contract]: the published build does
+	// not provide what this repository promises installers. [docs]: only the README's disclosure state is out of
+	// step. Measured reason: with a release that was current and a marker left in an older release's section, this
+	// gate printed the publish remedy -- "bump package.json, tag it" -- for a problem that needed a marker deleted,
+	// and called a true historical note a lie. Conflating the two sends a maintainer to ship a release to fix a note.
+	const contract = [];
+	const docs = [];
 	for (const peer of HOST_PEERS) {
 		const wanted = manifest.peerDependencies?.[peer];
 		const got = publishedManifest.peerDependencies?.[peer];
 		if (wanted === got) continue;
-		problems.push(`${peer}: registry says ${JSON.stringify(got)}, this repository's contract is ${JSON.stringify(wanted)}`);
+		contract.push(`${peer}: registry says ${JSON.stringify(got)}, this repository's contract is ${JSON.stringify(wanted)}`);
 	}
 	let guardSource;
 	try {
 		guardSource = readFileSync(join(published.dir, "src", "index.ts"), "utf8");
 	} catch {
 		guardSource = "";
-		problems.push("src/index.ts is missing from the published artifact, so the host-capability guard cannot be verified");
+		contract.push("src/index.ts is missing from the published artifact, so the host-capability guard cannot be verified");
 	}
 	if (guardSource && !GUARD_PATTERN.test(guardSource)) {
-		problems.push("the published src/index.ts has no host-capability guard (no MINIMUM_PI_VERSION / hostSupportsSessionProjection): an install below the floor registers the tools and dies on the first request that reads the session projection");
+		contract.push("the published src/index.ts has no host-capability guard (no MINIMUM_PI_VERSION / hostSupportsSessionProjection): an install below the floor registers the tools and dies on the first request that reads the session projection");
 	}
 
 	// The README is the install contract, so its honesty about the published build is part of this check, in the two
@@ -112,25 +118,31 @@ try {
 		{ where: `the "Changes in ${manifest.version}" section, where readers look up what this release does`, body: section(`## Changes in ${manifest.version}`) },
 	];
 	const undisclosed = regions.filter((region) => region.body === null || !region.body.includes(CONTRACT_MARKER));
-	// The mirror-image rule is deliberately stricter in the other direction: once the published build carries the
-	// contract, a marker anywhere in the README is a false statement about a build that is now fine.
-	const marksAnything = readme.includes(CONTRACT_MARKER);
-	if (problems.length > 0 && undisclosed.length > 0) {
-		problems.push(`the README advertises an install command for this version while the published build lacks the contract, and ${undisclosed.map((region) => region.where).join(" and ")} do not say so: add a note there marked ${CONTRACT_MARKER} naming what the published build does on an unsupported host`);
+	const marked = regions.filter((region) => region.body !== null && region.body.includes(CONTRACT_MARKER));
+	// The mirror-image rule covers the two sections whose marker states the current relationship to the registry. A
+	// marker inside an older release's section is the record of that release -- "the published 0.3.11 predates the
+	// floor" stays true forever -- so it is not a claim about today and is deliberately not inspected.
+	if (contract.length > 0 && undisclosed.length > 0) {
+			docs.push(`the README advertises an install command for this version while the published build lacks the contract, and ${undisclosed.map((region) => region.where).join(" and ")} do not say so: add a note there marked ${CONTRACT_MARKER} naming what the published build does on an unsupported host`);
 	}
-	if (problems.length === 0 && marksAnything) {
-		problems.push(`the published build carries the contract, so the README's disclosure of a stale published build is no longer true: remove the ${CONTRACT_MARKER} note`);
+	if (contract.length === 0 && marked.length > 0) {
+			docs.push(`the published build carries the contract, so the disclosure markers in ${marked.map((region) => region.where).join(" and ")} describe a stale published build that no longer exists: remove the ${CONTRACT_MARKER} marker from those sections. A note inside an older release's section is that release's record and stays as it is`);
 	}
 
+	const problems = [...contract.map((problem) => ({ kind: "contract", problem })), ...docs.map((problem) => ({ kind: "docs", problem }))];
 	if (problems.length === 0) {
 		console.log(`PUBLISHED ARTIFACT: ${publishedManifest.name}@${publishedManifest.version} carries the peer floor and the capability guard.`);
 		process.exit(0);
 	}
 
-	console.log(`PUBLISHED ARTIFACT: ${publishedManifest.name}@${publishedManifest.version} on the registry does not carry this repository's compatibility contract:`);
-	for (const problem of problems) console.log(`  - ${problem}`);
-	console.log("The README pins an install command for this version, so readers are sent to a build whose guarantees are the old ones.");
-	console.log("Fix: publish a version that carries the contract (bump package.json, keep README and CHANGELOG in step, tag it), or correct the contract in the source if the published build is the intended one.");
+	console.log(`PUBLISHED ARTIFACT: ${publishedManifest.name}@${publishedManifest.version} does not match what this repository promises${contract.length === 0 ? ", and the only problem is the README's disclosure state" : ""}:`);
+	for (const { kind, problem } of problems) console.log(`  - [${kind}] ${problem}`);
+	if (contract.length > 0) {
+		console.log("The README pins an install command for this version, so readers are sent to a build whose guarantees are the old ones.");
+		console.log("Fix: publish a version that carries the contract (bump package.json, keep README and CHANGELOG in step, tag it), or correct the contract in the source if the published build is the intended one.");
+	} else {
+		console.log("Nothing is missing from the published build: fix the disclosure state, not the release.");
+	}
 	process.exit(1);
 } finally {
 	published.cleanup();
