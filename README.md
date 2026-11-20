@@ -641,7 +641,10 @@ fork's pull-request runs wait for a maintainer to approve them, so work that liv
 sit behind a PR with no checks at all -- an empty check list, which a reviewer can read as "nothing ran" and
 not as "everything passed". To get CI receipts for such a branch, push its commit to the fork's own `main`:
 the same triggers apply there, and the job list from that run is the receipt. Measured: PR #10's head showed
-no checks; the same commit pushed to the fork's `main` ran all three jobs.
+no checks; the same commit pushed to the fork's `main` ran all three jobs. That receipt is in the fork's
+Actions tab for the same SHA -- the pull request's own Checks tab stays empty (measured: 0 checks after those
+runs), because a fork pull request's runs need a maintainer to approve them. Say where to look; an empty Checks
+tab is not a passing run.
 
 ```sh
 npm run check:host                     # the latest published Pi
