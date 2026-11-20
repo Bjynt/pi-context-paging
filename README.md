@@ -84,6 +84,15 @@ From the GitHub release tag:
 pi install git:github.com/rochecompaan/pi-context-paging@v0.3.11
 ```
 
+<!-- published-contract-disclosure -->
+Both commands above install the **published release**, and it is not the build described on the rest of
+this page. The 0.3.11 release and its `v0.3.11` tag predate the peer floor and the session-start
+capability guard, so on a Pi older than 0.87.0 that build accepts the install and then fails on the first
+request that reads the session projection; nothing in it refuses an unsupported host. Builds from this
+repository declare the floor in `peerDependencies`, so the install is refused, and turn paging off with a
+named report on a host that cannot provide the session projection. The floor itself is the same in both:
+see below.
+
 After installation, restart Pi.
 
 ### Supported Pi versions

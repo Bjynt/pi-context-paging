@@ -171,10 +171,10 @@ test("the published-artifact gate compares the registry's build against the cont
 			);
 			writeFileSync(join(dir, "src", "index.ts"), source);
 		};
-		const run = (dir: string) =>
+		const run = (dir: string, readmePath?: string) =>
 			spawnSync(process.execPath, [join(repo, "scripts", "check-published-artifact.mjs")], {
 				cwd: repo,
-				env: { ...process.env, PUBLISHED_ARTIFACT_DIR: dir },
+				env: { ...process.env, PUBLISHED_ARTIFACT_DIR: dir, ...(readmePath ? { PUBLISHED_CONTRACT_README: readmePath } : {}) },
 				encoding: "utf8",
 			});
 
@@ -197,8 +197,35 @@ test("the published-artifact gate compares the registry's build against the cont
 		// B: a build that carries the contract -- same peer ranges, guard present.
 		const current = join(workspace, "current");
 		write(current, manifest.peerDependencies, "const MINIMUM_PI_VERSION = \"0.87.0\";\nexport default function paging() {}");
-		const currentRun = run(current);
-		assert.equal(currentRun.status, 0, `a published build carrying the contract must pass: ${currentRun.stdout}${currentRun.stderr}`);
+
+		// The README is the install contract, so the disclosure of a stale published build is checked in both
+		// directions: required while the registry copy lacks the contract, forbidden once it carries it (a note about a
+		// build that is now fine is its own false statement). Marker, not sentence: the prose is free to change.
+		const marker = "<!-- published-contract-disclosure -->";
+		const readme = read("README.md");
+		assert.ok(readme.includes(marker), "the README must disclose the stale published build next to the install commands while the registry copy lacks the contract");
+		const bareReadme = join(workspace, "README-bare.md");
+		writeFileSync(bareReadme, readme.replace(marker, "<!-- no disclosure -->"));
+
+		const staleWithDisclosure = run(stale);
+		assert.ok(!(staleWithDisclosure.stdout + staleWithDisclosure.stderr).includes(marker), "a disclosed divergence must not also report the missing disclosure");
+		const staleWithout = run(stale, bareReadme);
+		assert.equal(staleWithout.status, 1, "a divergence the README does not mention must fail the gate");
+		assert.ok((staleWithout.stdout + staleWithout.stderr).includes(marker), "the report must name the disclosure the README is missing");
+
+		writeFileSync(join(workspace, "README-current.md"), readme);
+		const good = run(current, join(workspace, "README-current.md"));
+		assert.equal(good.status, 1, "a disclosure left in place after the published build became current must fail the gate");
+		assert.ok((good.stdout + good.stderr).includes(marker), "the report must say the disclosure is no longer true");
+		const clean = run(current, bareReadme);
+		assert.equal(clean.status, 0, `a current published build with no disclosure must pass: ${clean.stdout}${clean.stderr}`);
+
+		// Tolerance: the disclosure reworded, marker kept -- same verdict, no disclosure problem.
+		const reworded = join(workspace, "README-reworded.md");
+		writeFileSync(reworded, readme.replace("Both commands above install the **published release**", "The commands above fetch the **published build**"));
+		const rewordedRun = run(stale, reworded);
+		assert.equal(rewordedRun.status, 1, "rewording the disclosure must not change the verdict");
+		assert.ok(!(rewordedRun.stdout + rewordedRun.stderr).includes(marker), "a reworded disclosure is still a disclosure");
 
 		// The gate needs a registry read in the real path, so it belongs to CI and not to the offline publish hook.
 		assert.match(

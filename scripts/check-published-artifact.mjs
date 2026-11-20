@@ -30,6 +30,10 @@ import { fileURLToPath } from "node:url";
 
 const HOST_PEERS = ["@earendil-works/pi-coding-agent", "@earendil-works/pi-agent-core", "@earendil-works/pi-ai"];
 const GUARD_PATTERN = /MINIMUM_PI_VERSION|hostSupportsSessionProjection/;
+// A machine-checked anchor, not a sentence: the README has to disclose a stale published build where readers install
+// it, and has to stop disclosing it once the published build is current. The prose around the marker is free; the
+// marker's presence is the fact, so a rewording cannot break this and a forgotten note cannot quietly become a lie.
+const CONTRACT_MARKER = "<!-- published-contract-disclosure -->";
 
 const repo = dirname(dirname(fileURLToPath(import.meta.url)));
 const manifest = JSON.parse(readFileSync(join(repo, "package.json"), "utf8"));
@@ -89,6 +93,17 @@ try {
 	}
 	if (guardSource && !GUARD_PATTERN.test(guardSource)) {
 		problems.push("the published src/index.ts has no host-capability guard (no MINIMUM_PI_VERSION / hostSupportsSessionProjection): an install below the floor registers the tools and dies on the first request that reads the session projection");
+	}
+
+	// The README is the install contract, so its honesty about the published build is part of this check. Seam: a
+	// README path, so the disclosure rule is testable without touching the document.
+	const readme = readFileSync(process.env.PUBLISHED_CONTRACT_README ?? join(repo, "README.md"), "utf8");
+	const discloses = readme.includes(CONTRACT_MARKER);
+	if (problems.length > 0 && !discloses) {
+		problems.push(`the README advertises an install command for this version while the published build lacks the contract, and does not say so: add a note next to the install commands marked ${CONTRACT_MARKER} naming what the published build does on an unsupported host`);
+	}
+	if (problems.length === 0 && discloses) {
+		problems.push(`the published build carries the contract, so the README's disclosure of a stale published build is no longer true: remove the ${CONTRACT_MARKER} note`);
 	}
 
 	if (problems.length === 0) {
