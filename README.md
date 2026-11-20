@@ -636,6 +636,13 @@ extensions when it loads them and the gate installs a whole Pi release into the 
 directory at 80 % full and gone once space was freed; point `--dir` at a filesystem with room, or free space
 and re-run.
 
+CI runs on pull requests and on pushes to `main`. A push to a topic branch on a fork triggers nothing, and a
+fork's pull-request runs wait for a maintainer to approve them, so work that lives only on a fork branch can
+sit behind a PR with no checks at all -- an empty check list, which a reviewer can read as "nothing ran" and
+not as "everything passed". To get CI receipts for such a branch, push its commit to the fork's own `main`:
+the same triggers apply there, and the job list from that run is the receipt. Measured: PR #10's head showed
+no checks; the same commit pushed to the fork's `main` ran all three jobs.
+
 ```sh
 npm run check:host                     # the latest published Pi
 npm run check:host -- --host floor     # the oldest supported Pi (see COMPAT_FLOOR in the gate script)
