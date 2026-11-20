@@ -95,14 +95,30 @@ try {
 		problems.push("the published src/index.ts has no host-capability guard (no MINIMUM_PI_VERSION / hostSupportsSessionProjection): an install below the floor registers the tools and dies on the first request that reads the session projection");
 	}
 
-	// The README is the install contract, so its honesty about the published build is part of this check. Seam: a
-	// README path, so the disclosure rule is testable without touching the document.
+	// The README is the install contract, so its honesty about the published build is part of this check, in the two
+	// places a reader acts on: where the install commands are, and the changelog section for this version, which is
+	// where people look up what the release they are about to install does. Seam: a README path, so the rule is
+	// testable without touching the document.
 	const readme = readFileSync(process.env.PUBLISHED_CONTRACT_README ?? join(repo, "README.md"), "utf8");
-	const discloses = readme.includes(CONTRACT_MARKER);
-	if (problems.length > 0 && !discloses) {
-		problems.push(`the README advertises an install command for this version while the published build lacks the contract, and does not say so: add a note next to the install commands marked ${CONTRACT_MARKER} naming what the published build does on an unsupported host`);
+	const section = (heading) => {
+		const start = readme.indexOf(heading);
+		if (start === -1) return null;
+		const rest = readme.slice(start + heading.length);
+		const next = rest.search(/^## /m);
+		return next === -1 ? rest : rest.slice(0, next);
+	};
+	const regions = [
+		{ where: "the Install section, where the install commands are", body: section("## Install") },
+		{ where: `the "Changes in ${manifest.version}" section, where readers look up what this release does`, body: section(`## Changes in ${manifest.version}`) },
+	];
+	const undisclosed = regions.filter((region) => region.body === null || !region.body.includes(CONTRACT_MARKER));
+	// The mirror-image rule is deliberately stricter in the other direction: once the published build carries the
+	// contract, a marker anywhere in the README is a false statement about a build that is now fine.
+	const marksAnything = readme.includes(CONTRACT_MARKER);
+	if (problems.length > 0 && undisclosed.length > 0) {
+		problems.push(`the README advertises an install command for this version while the published build lacks the contract, and ${undisclosed.map((region) => region.where).join(" and ")} do not say so: add a note there marked ${CONTRACT_MARKER} naming what the published build does on an unsupported host`);
 	}
-	if (problems.length === 0 && discloses) {
+	if (problems.length === 0 && marksAnything) {
 		problems.push(`the published build carries the contract, so the README's disclosure of a stale published build is no longer true: remove the ${CONTRACT_MARKER} note`);
 	}
 

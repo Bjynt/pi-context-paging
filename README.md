@@ -480,7 +480,9 @@ Read [the architecture document](docs/architecture.md) for module and lifecycle 
 
 ## Changes in 0.3.11
 
-- Installing this extension on a Pi below the supported floor is refused by the package manifest (`>=0.87.0` on the host peers). An install that ignores peer ranges now turns paging off for the session and reports the requirement once, instead of failing the user's first provider request.
+<!-- published-contract-disclosure -->
+
+- Installing this extension on a Pi below the supported floor is refused by the package manifest (`>=0.87.0` on the host peers), and an install that ignores peer ranges turns paging off for the session and reports the requirement once, instead of failing the user's first provider request. Both are properties of this repository's source, not of the release published as 0.3.11: that build declares `"*"` peers and has no capability guard, so it accepts an unsupported install and fails on the first request that reads the session projection. See the note under "Install".
 - `load_history`, and `search_history` with `load: true`, return items whole, smallest first, while they fit the 16 KiB reply. Before, every item over 4 KiB came back as parts.
 - `read_context_output` text mode returns a JSON header block, then the page as a second block. Strings and text blocks with only `type` and `text` read as plain text without JSON escaping. Other parts read as exact JSON.
 - Pages fill the 16 KiB reply instead of stopping at 2,000 characters. While text remains, the header has `next`, the exact arguments for the next read. `limit` is optional, up to 16,384.

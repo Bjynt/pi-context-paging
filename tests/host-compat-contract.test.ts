@@ -212,12 +212,35 @@ test("the published-artifact gate compares the registry's build against the cont
 		const staleWithout = run(stale, bareReadme);
 		assert.equal(staleWithout.status, 1, "a divergence the README does not mention must fail the gate");
 		assert.ok((staleWithout.stdout + staleWithout.stderr).includes(marker), "the report must name the disclosure the README is missing");
+		// Precision: the bare fixture removed the Install marker only, so the changelog section is disclosed and must
+		// not be reported as missing.
+		assert.ok(!(staleWithout.stdout + staleWithout.stderr).includes(`"Changes in ${manifest.version}"`), "a section that does disclose must not be reported as missing it");
+
+		// The changelog section for this version is the other place a reader acts on: it is where people look up what
+		// the release they are installing does, and the 0.3.11 section claimed the manifest refuses unsupported installs.
+		const changelogAt = readme.indexOf(`## Changes in ${manifest.version}`);
+		assert.ok(changelogAt > 0, "the README must keep a changelog section for the advertised version");
+		const changelogBare = join(workspace, "README-changelog-bare.md");
+		writeFileSync(changelogBare, readme.slice(0, changelogAt) + readme.slice(changelogAt).replace(marker, "<!-- none -->"));
+		const changelogRun = run(stale, changelogBare);
+		assert.equal(changelogRun.status, 1, "an undisclosed changelog section must fail the gate");
+		const changelogReport = changelogRun.stdout + changelogRun.stderr;
+		assert.ok(changelogReport.includes(`"Changes in ${manifest.version}"`), "the report must name the changelog section that lacks the disclosure");
+		assert.ok(!changelogReport.includes("Install section"), "the Install section does disclose and must not be reported");
+
+		// Nothing disclosed at all: both places are named.
+		const noneReadme = join(workspace, "README-none.md");
+		writeFileSync(noneReadme, readme.replaceAll(marker, "<!-- none -->"));
+		const noneRun = run(stale, noneReadme);
+		const noneReport = noneRun.stdout + noneRun.stderr;
+		assert.equal(noneRun.status, 1, "a README with no disclosure anywhere must fail the gate");
+		assert.ok(noneReport.includes("Install section") && noneReport.includes(`"Changes in ${manifest.version}"`), `the report must name both places, got: ${noneReport}`);
 
 		writeFileSync(join(workspace, "README-current.md"), readme);
 		const good = run(current, join(workspace, "README-current.md"));
 		assert.equal(good.status, 1, "a disclosure left in place after the published build became current must fail the gate");
 		assert.ok((good.stdout + good.stderr).includes(marker), "the report must say the disclosure is no longer true");
-		const clean = run(current, bareReadme);
+		const clean = run(current, noneReadme);
 		assert.equal(clean.status, 0, `a current published build with no disclosure must pass: ${clean.stdout}${clean.stderr}`);
 
 		// Tolerance: the disclosure reworded, marker kept -- same verdict, no disclosure problem.
