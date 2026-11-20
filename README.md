@@ -646,6 +646,15 @@ Actions tab for the same SHA -- the pull request's own Checks tab stays empty (m
 runs), because a fork pull request's runs need a maintainer to approve them. Say where to look; an empty Checks
 tab is not a passing run.
 
+A release tag is evidence, not a bookmark. The registry records the commit a published version was built from
+(`npm view <package>@<version> gitHead`), and the tag is this repository's claim about the same thing
+(`git rev-list -n1 v<version>`); `scripts/check-published-artifact.mjs` compares the two, so a version whose tag
+and published build disagree is a red check. Treat `v*` tags accordingly: `git tag -f v<version>` moves the
+comparison and destroys the record of what the release contained. Both facts come from measurement in this
+repository -- the registry's 0.3.11 and the source carrying the same number were 65 commits apart, and a
+`git tag -f` during a test moved the tag the comparison depends on (restored from the object store, target
+verified against the registry).
+
 ```sh
 npm run check:host                     # the latest published Pi
 npm run check:host -- --host floor     # the oldest supported Pi (see COMPAT_FLOOR in the gate script)

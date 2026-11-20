@@ -101,6 +101,24 @@ try {
 		contract.push("the published src/index.ts has no host-capability guard (no MINIMUM_PI_VERSION / hostSupportsSessionProjection): an install below the floor registers the tools and dies on the first request that reads the session projection");
 	}
 
+	// The release tag is the repository's claim about what a version number ships, and npm records the commit the
+	// published build was made from. Measured reason this is checked here: this repository's source and the registry's
+	// 0.3.11 were 65 commits apart with the same version number, and a tag force-move is easy to do by accident -- a
+	// local `git tag -f v0.3.11` silently destroys the comparison, which is why the tag is treated as evidence and this
+	// check reads it. Both sides need a seam so the rule is testable offline.
+	const publishedHead = process.env.PUBLISHED_GIT_HEAD ?? (fixture ? "" : npmView(`${manifest.name}@${manifest.version}`, "gitHead"));
+	const tagRef = `v${manifest.version}`;
+	const tagCommit = process.env.PUBLISHED_TAG_COMMIT ?? (() => {
+		try {
+			return execFileSync("git", ["rev-list", "-n", "1", tagRef], { encoding: "utf8", cwd: repo, stdio: ["ignore", "pipe", "ignore"] }).trim();
+		} catch {
+			return ""; // Shallow clone, or tags not fetched: nothing to compare, and guessing here would be worse.
+		}
+	})();
+	if (publishedHead && tagCommit && publishedHead !== tagCommit) {
+		contract.push(`the registry built ${manifest.version} from ${publishedHead}, but this repository's ${tagRef} points at ${tagCommit}: the advertised version is not the source it claims to ship -- the tag moved, or the release was made from other content`);
+	}
+
 	// The README is the install contract, so its honesty about the published build is part of this check, in the two
 	// places a reader acts on: where the install commands are, and the changelog section for this version, which is
 	// where people look up what the release they are about to install does. Seam: a README path, so the rule is

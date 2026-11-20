@@ -271,6 +271,34 @@ test("the published-artifact gate compares the registry's build against the cont
 		assert.equal(rewordedRun.status, 1, "rewording the disclosure must not change the verdict");
 		assert.ok(!(rewordedRun.stdout + rewordedRun.stderr).includes(marker), "a reworded disclosure is still a disclosure");
 
+		// The release tag is the repository's claim about what a version number ships, and npm records the commit the
+		// published build came from. Measured reason to check the two against each other: the registry's 0.3.11 sat 65
+		// commits away from the source carrying the same number, and a local `git tag -f v0.3.11` during this loop moved
+		// the very tag the comparison relies on (restored and verified) -- a tag is evidence, and nothing checked it.
+		const withHeads = (dir: string, gitHead: string, tagCommit: string) =>
+			spawnSync(process.execPath, [join(repo, "scripts", "check-published-artifact.mjs")], {
+				cwd: repo,
+				env: {
+					...process.env,
+					PUBLISHED_ARTIFACT_DIR: dir,
+					PUBLISHED_CONTRACT_README: join(workspace, "README-none.md"),
+					PUBLISHED_GIT_HEAD: gitHead,
+					PUBLISHED_TAG_COMMIT: tagCommit,
+				},
+				encoding: "utf8",
+			});
+		const head = "1111111111111111111111111111111111111111";
+		const moved = "2222222222222222222222222222222222222222";
+		const sameHead = withHeads(current, head, head);
+		assert.equal(sameHead.status, 0, `a tag that matches the published commit must pass: ${sameHead.stdout}${sameHead.stderr}`);
+		const movedTag = withHeads(current, head, moved);
+		assert.equal(movedTag.status, 1, "a tag that does not match the published commit must fail the gate");
+		const movedReport = movedTag.stdout + movedTag.stderr;
+		assert.ok(movedReport.includes("[contract]"), "a moved tag is a contract problem, not a documentation one");
+		assert.ok(movedReport.includes(`v${manifest.version}`), "the report must name the tag that disagrees with the registry");
+		const unverifiable = withHeads(current, head, "");
+		assert.equal(unverifiable.status, 0, "a repository that cannot resolve its release tag must not be reported as a mismatch");
+
 		// The gate needs a registry read in the real path, so it belongs to CI and not to the offline publish hook.
 		assert.match(
 			read(".github/workflows/ci.yml"),
